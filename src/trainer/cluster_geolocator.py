@@ -1,62 +1,3 @@
-"""
-cluster_geolocator.py
----------------------
-Geolocates historical archive photos (from flickr_clusters.csv) against
-Mapillary street-level imagery captured today.
-
-Pipeline overview
------------------
-For each archive photo the following steps are executed:
-
-  1. Text geocoding  (optional, via Nominatim)
-       Refines the search centre from the photo title / description.
-       Accepted only when the geocoded point lies within 50 km of the
-       CSV GPS coordinates.
-
-  2. Mapillary candidate fetch
-       Queries the Mapillary Graph API for street-level images inside a
-       bounding box around the (refined) search centre.
-       Search radius is adaptive: 0.25 km for building photos (reliable
-       GPS), 0.75 km for others.
-
-  3. Visual ranking  ← the core of this project
-       Each Mapillary candidate is scored by:
-
-           score = visual_similarity − distance_weight × distance_km
-
-       Visual similarity is computed with a dual-encoder fusion:
-
-           similarity = alpha × DINOv2_sim + (1-alpha) × SigLIP_sim
-
-       DINOv2 matches structural/geometric features (facade edges,
-       window patterns) which are stable across the archive-to-street
-       domain gap (black-and-white → colour, 1920s → 2024).
-       SigLIP adds semantic scene context.
-
-       Before encoding, archive photos are preprocessed (grayscale +
-       contrast normalisation) to reduce the style gap.  Mapillary
-       candidates are preprocessed the same way for a fair comparison.
-
-  4. Spatial cluster re-ranking
-       Candidates surrounded by other high-scoring neighbours receive a
-       cluster bonus.  This rewards spatially coherent predictions and
-       dampens isolated visual false positives.
-
-  5. Location prediction
-       Final (lat, lon) is the centroid of a tight cluster (≤ 100 m for
-       buildings, ≤ 150 m for others) around the top-ranked candidate.
-
-Usage
------
-    python -m src.trainer.cluster_geolocator
-    python -m src.trainer.cluster_geolocator --only_buildings --num_photos 20
-    python -m src.trainer.cluster_geolocator --photo_id 8506513177
-    python -m src.trainer.cluster_geolocator --institution "National Archives UK"
-    python -m src.trainer.cluster_geolocator --no_text_geocoding --num_photos 50
-    python -m src.trainer.cluster_geolocator --alpha 0.5   # equal DINOv2/SigLIP weight
-    python -m src.trainer.cluster_geolocator --single_encoder dinov2  # skip fusion
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -214,9 +155,6 @@ def geolocate(
     mapillary_limit:    Maximum number of Mapillary candidates to retrieve.
     top_k:              Number of ranked matches included in the output.
     use_text_geocoding: Attempt Nominatim geocoding from title/description.
-    use_dual_encoder:   Use DINOv2 + SigLIP fusion (recommended).
-                        When False, uses `single_encoder` alone.
-    alpha:              DINOv2 weight in the fused score (0–1).
     single_encoder:     Backbone to use when use_dual_encoder=False.
 
     Returns
@@ -502,63 +440,74 @@ _CSV_FIELDS = [
 ]
 
 def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
-    """
-    Save a side-by-side JPEG: archive photo (left) | matched Mapillary (right).
-    Filename is prefixed with zero-padded inlier count so sorting the folder
-    by name puts the highest-confidence matches at the top.
-    """
+    """Side-by-side comparison JPEG. Verbose: prints what it's doing at each step."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont
     import requests
+    import traceback
+
 
     try:
         archive_resp = requests.get(photo["image_url"], timeout=30)
         archive_resp.raise_for_status()
         mapil_resp = requests.get(top["thumb_url"], timeout=30)
         mapil_resp.raise_for_status()
+
+        archive = Image.open(BytesIO(archive_resp.content)).convert("RGB")
+        mapil   = Image.open(BytesIO(mapil_resp.content)).convert("RGB")
+
+        target_h = 600
+        a_w = int(archive.width * target_h / archive.height)
+        m_w = int(mapil.width   * target_h / mapil.height)
+        archive = archive.resize((a_w, target_h), Image.LANCZOS)
+        mapil   = mapil.resize((m_w, target_h),   Image.LANCZOS)
+
+        gap, cap_h = 16, 70
+        canvas = Image.new("RGB", (a_w + m_w + gap, target_h + cap_h), "white")
+        canvas.paste(archive, (0, cap_h))
+        canvas.paste(mapil,   (a_w + gap, cap_h))
+
+        draw = ImageDraw.Draw(canvas)
+        try:
+            font_big   = ImageFont.truetype("arial.ttf", 16)
+            font_small = ImageFont.truetype("arial.ttf", 13)
+        except Exception:
+            font_big = font_small = ImageFont.load_default()
+
+        # Header
+        institution = (photo.get('source_dataset') or '').strip()
+        date_str    = (photo.get('date_taken')     or '').strip()
+        title_disp  = (photo.get('title')          or '').strip()
+        if len(title_disp) > 90:
+            title_disp = title_disp[:87].rstrip() + "…"
+        meta_bits = [b for b in (institution, date_str) if b]
+        line1 = title_disp + (' — ' + ', '.join(meta_bits) if meta_bits else '')
+        line2 = (f"Located via Mapillary at "
+                 f"{top.get('pred_lat', 0):.5f}, {top.get('pred_lon', 0):.5f}")
+
+        draw.text((10, 8),  line1, fill="black", font=font_big)
+        draw.text((10, 32), line2, fill="#444",  font=font_small)
+        draw.line([(10, 56), (a_w + m_w + gap - 10, 56)], fill="#bbb", width=1)
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_title = (photo.get('title') or '').strip()
+        for ch in '<>:"/\\|?*\n\r\t':
+            safe_title = safe_title.replace(ch, '')
+        safe_title = ' '.join(safe_title.split())
+        if len(safe_title) > 80:
+            safe_title = safe_title[:80].rstrip()
+        if not safe_title:
+            safe_title = 'untitled'
+
+        out_path = out_dir / f"{safe_title}_{photo['photo_id']}.jpg"
+        canvas.save(out_path, quality=85)
+        return out_path
+
     except Exception as exc:
-        print(f"  [comparison] download failed: {exc}")
+        print(f"  [comparison] FAILED: {type(exc).__name__}: {exc}")
+        traceback.print_exc()
         return None
-
-    archive = Image.open(BytesIO(archive_resp.content)).convert("RGB")
-    mapil   = Image.open(BytesIO(mapil_resp.content)).convert("RGB")
-
-    # Resize both to a common height, preserving aspect ratio.
-    target_h = 600
-    a_w = int(archive.width * target_h / archive.height)
-    m_w = int(mapil.width   * target_h / mapil.height)
-    archive = archive.resize((a_w, target_h), Image.LANCZOS)
-    mapil   = mapil.resize((m_w, target_h),   Image.LANCZOS)
-
-    gap = 16
-    cap_h = 70
-    canvas = Image.new("RGB", (a_w + m_w + gap, target_h + cap_h), "white")
-    canvas.paste(archive, (0, cap_h))
-    canvas.paste(mapil,   (a_w + gap, cap_h))
-
-    draw = ImageDraw.Draw(canvas)
-    try:
-        font_big   = ImageFont.truetype("arial.ttf", 16)
-        font_small = ImageFont.truetype("arial.ttf", 13)
-    except Exception:
-        font_big = font_small = ImageFont.load_default()
-
-    inliers = top.get("inliers")
-    total   = top.get("match_total")
-    line1 = f"Flickr {photo['photo_id']}: {photo['title'][:80]}"
-    line2 = (f"Mapillary {top['mapillary_id']}  |  "
-             f"inliers={inliers}/{total}  |  "
-             f"distance={top.get('distance_km', 0):.2f} km  |  "
-             f"center={top.get('center_source', '?')}")
-    draw.text((10, 8),  line1, fill="black", font=font_big)
-    draw.text((10, 32), line2, fill="#444",  font=font_small)
-    draw.line([(10, 56), (a_w + m_w + gap - 10, 56)], fill="#bbb", width=1)
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    prefix = f"{inliers:03d}" if isinstance(inliers, int) else "xxx"
-    out_path = out_dir / f"{prefix}_{photo['photo_id']}.jpg"
-    canvas.save(out_path, quality=85)
-    return out_path
 
 def _to_row(photo: dict, result: Optional[dict]) -> dict:
     base = {

@@ -339,7 +339,12 @@ def rank_candidates_loftr(
               f"inliers={n_in:3d}/{total:<3d} (ratio={ratio:.2f})  "
               f"id={cand['mapillary_id']}")
 
-    scored.sort(key=lambda x: x["inliers"], reverse=True)
+    scored.sort(
+    key=lambda x: (x["inliers"], x["inlier_ratio"], x["mapillary_id"]),
+    reverse=True,
+)
+    print(f"  [debug] LoFTR survivors: "
+          f"{[c['mapillary_id'] for c in candidates]}")
     return scored
 
 # ── Spatial cluster re-ranking ────────────────────────────────────────────────

@@ -12,7 +12,7 @@ from .geo_utils import haversine_km
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # IMPORTANT: replace the email below with yours. Nominatim requires a real UA.
-_HEADERS = {"User-Agent": "flico-thesis/1.0 (nathanael.ambert@epfl.ch)"}
+_HEADERS = {"User-Agent": "flickr-project/1.0 (firstname.name@epfl.ch)"}
 
 # Conservative noise regex — DO NOT strip building-type words like
 # "library/museum/university/institute"; those are often the actual subject.

@@ -1,2 +1,2 @@
 photo_id,source_dataset,title,vision_label,flickr_lat,flickr_lon,pred_lat,pred_lon,mapillary_id,similarity,dino_score,siglip_score,final_score,cluster_score,neighbors,distance_km,center_source,status
-5977820748,bibliothequedetoulouse,"Maison et tourelle, Uzerche, 27 octobre 1893",YES,45.427672,1.56598,45.427799734385,1.5656357428281,303377461394044,22.0,,,22.0,22.0,0,0.030388550043679647,gps,ok
+7960202060,State Library of Queensland Australia,External view of the Deutscher Turn_Verein building Brisbane,YES,-27.467764,153.022899,-27.467576961249,153.02273898107,308427464228547,24.0,,,24.0,24.0,0,0.026111133008367978,gps,ok
