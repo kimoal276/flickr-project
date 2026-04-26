@@ -1,2 +1,2 @@
 photo_id,source_dataset,title,vision_label,flickr_lat,flickr_lon,pred_lat,pred_lon,mapillary_id,similarity,dino_score,siglip_score,final_score,cluster_score,neighbors,distance_km,center_source,status
-4025738699,Swedish National Heritage Board,"Heliga Trefaldighet Church, Kristianstad, Skåne, Sweden",YES,56.031868,14.152772,56.032752799972,14.1484231,793841091275480,24.0,,,24.0,24.0,0,0.28754147317146594,gps,ok
+5977820748,bibliothequedetoulouse,"Maison et tourelle, Uzerche, 27 octobre 1893",YES,45.427672,1.56598,45.427799734385,1.5656357428281,303377461394044,22.0,,,22.0,22.0,0,0.030388550043679647,gps,ok

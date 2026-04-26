@@ -196,7 +196,7 @@ def load_photos(
 def geolocate(
     photo: dict,
     radius_km: Optional[float] = None,
-    mapillary_limit: int = 50,
+    mapillary_limit: int = 200,
     top_k: int = 5,
     use_text_geocoding: bool = True,
     use_dual_encoder: bool = False,
@@ -475,6 +475,15 @@ def batch_geolocate(
             print(f"  Unhandled error: {exc}")
             result = None
 
+        if result and result.get("top_match", {}).get("thumb_url"):
+            comp = _save_comparison(
+                photo=result["photo"],
+                top=result["top_match"],
+                out_dir=Path(out_csv).parent / "comparisons",
+            )
+            if comp:
+                print(f"  Comparison → {comp}")
+
         rows.append(_to_row(photo, result))
 
     _write_csv(rows, out_path)
@@ -492,6 +501,64 @@ _CSV_FIELDS = [
     "distance_km", "center_source", "status",
 ]
 
+def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
+    """
+    Save a side-by-side JPEG: archive photo (left) | matched Mapillary (right).
+    Filename is prefixed with zero-padded inlier count so sorting the folder
+    by name puts the highest-confidence matches at the top.
+    """
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+    import requests
+
+    try:
+        archive_resp = requests.get(photo["image_url"], timeout=30)
+        archive_resp.raise_for_status()
+        mapil_resp = requests.get(top["thumb_url"], timeout=30)
+        mapil_resp.raise_for_status()
+    except Exception as exc:
+        print(f"  [comparison] download failed: {exc}")
+        return None
+
+    archive = Image.open(BytesIO(archive_resp.content)).convert("RGB")
+    mapil   = Image.open(BytesIO(mapil_resp.content)).convert("RGB")
+
+    # Resize both to a common height, preserving aspect ratio.
+    target_h = 600
+    a_w = int(archive.width * target_h / archive.height)
+    m_w = int(mapil.width   * target_h / mapil.height)
+    archive = archive.resize((a_w, target_h), Image.LANCZOS)
+    mapil   = mapil.resize((m_w, target_h),   Image.LANCZOS)
+
+    gap = 16
+    cap_h = 70
+    canvas = Image.new("RGB", (a_w + m_w + gap, target_h + cap_h), "white")
+    canvas.paste(archive, (0, cap_h))
+    canvas.paste(mapil,   (a_w + gap, cap_h))
+
+    draw = ImageDraw.Draw(canvas)
+    try:
+        font_big   = ImageFont.truetype("arial.ttf", 16)
+        font_small = ImageFont.truetype("arial.ttf", 13)
+    except Exception:
+        font_big = font_small = ImageFont.load_default()
+
+    inliers = top.get("inliers")
+    total   = top.get("match_total")
+    line1 = f"Flickr {photo['photo_id']}: {photo['title'][:80]}"
+    line2 = (f"Mapillary {top['mapillary_id']}  |  "
+             f"inliers={inliers}/{total}  |  "
+             f"distance={top.get('distance_km', 0):.2f} km  |  "
+             f"center={top.get('center_source', '?')}")
+    draw.text((10, 8),  line1, fill="black", font=font_big)
+    draw.text((10, 32), line2, fill="#444",  font=font_small)
+    draw.line([(10, 56), (a_w + m_w + gap - 10, 56)], fill="#bbb", width=1)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"{inliers:03d}" if isinstance(inliers, int) else "xxx"
+    out_path = out_dir / f"{prefix}_{photo['photo_id']}.jpg"
+    canvas.save(out_path, quality=85)
+    return out_path
 
 def _to_row(photo: dict, result: Optional[dict]) -> dict:
     base = {

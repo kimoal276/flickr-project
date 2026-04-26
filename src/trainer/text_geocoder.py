@@ -1,24 +1,4 @@
-"""
-text_geocoder.py
-----------------
-Attempts to refine a search centre using free-text metadata (title,
-description) before falling back to the raw GPS coordinates from the CSV.
-
-The pipeline is:
-    1. Clean the text (strip HTML, dates, archive boilerplate).
-    2. Send it to Nominatim (OpenStreetMap geocoder, no API key needed).
-    3. Accept the result only when it lies within max_drift_km of the
-       original GPS point — a sanity check against titles like
-       "Library of Congress Collection, 1905".
-
-The module deliberately sleeps ≥ 1.1 s between Nominatim calls to respect
-the service's rate limit policy.
-
-Public API
-----------
-refine_center(gps_lat, gps_lon, title, description, max_drift_km)
-    → (lat, lon, source)   where source ∈ {"title", "description", "gps"}
-"""
+"""text_geocoder.py — Nominatim with visible errors and distance-based selection."""
 
 from __future__ import annotations
 
@@ -31,22 +11,22 @@ import requests
 from .geo_utils import haversine_km
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-_HEADERS = {"User-Agent": "flico-geolocator/1.0 (academic research)"}
+# IMPORTANT: replace the email below with yours. Nominatim requires a real UA.
+_HEADERS = {"User-Agent": "flico-thesis/1.0 (nathanael.ambert@epfl.ch)"}
 
-# Regex patterns used to strip noise before geocoding
+# Conservative noise regex — DO NOT strip building-type words like
+# "library/museum/university/institute"; those are often the actual subject.
 _ARCHIVE_NOISE = re.compile(
     r"\b(ca\.?|circa|c\.|photograph(s|ed)?|photo|image|view|scene(s)?|"
-    r"collection|archive|commons|library|museum|university|institute|"
-    r"negatives?|glass\s+plates?|lantern\s+slides?|album)\b",
+    r"negatives?|glass\s+plates?|lantern\s+slides?|album|"
+    r"reference\s+n[\w.\-/]*|creator|location|unidentified)\b",
     flags=re.IGNORECASE,
 )
 _DATES = re.compile(
-    r"\b(ca\.?\s*)?\d{4}s?\b|\b\d+(st|nd|rd|th)\b",
+    r"\b(ca\.?\s*)?\d{4}s?\b|\b\d+(st|nd|rd|th)\b|\bbetween\b",
     flags=re.IGNORECASE,
 )
 
-
-# ── Public API ────────────────────────────────────────────────────────────────
 
 def refine_center(
     gps_lat: float,
@@ -56,80 +36,100 @@ def refine_center(
     max_drift_km: float = 50.0,
 ) -> tuple[float, float, str]:
     """
-    Try to improve the search centre using Nominatim geocoding.
-
-    Tries the photo title first; if the result drifts more than max_drift_km
-    from the GPS point it falls back to the description; if that also fails
-    the original GPS coordinates are returned unchanged.
-
-    Returns
-    -------
-    (lat, lon, source)
-        source is one of "title", "description", or "gps".
+    Geocode title/description with Nominatim, biased to the Flickr GPS.
+    Picks the closest result within max_drift_km; otherwise falls back to GPS.
+    Always returns a tuple — never None.
     """
     for text, label in [(title, "title"), (description, "description")]:
         if not text or len(text.strip()) < 5:
             continue
 
-        coords = _nominatim_geocode(text)
-        if coords is None:
-            print(f"  Text geocoding ({label}): no result")
+        cleaned = _clean_for_geocoding(text)
+        if len(cleaned) < 5:
             continue
 
-        nom_lat, nom_lon = coords
-        drift = haversine_km(gps_lat, gps_lon, nom_lat, nom_lon)
+        # Build progressively simpler query variants.
+        variants = [cleaned]
+        if "," in cleaned:
+            parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+            if len(parts) >= 2:
+                variants.append(f"{parts[0]}, {parts[-1]}")
+            if parts:
+                variants.append(parts[0])
+            if len(parts) >= 2:
+                variants.append(parts[-1])
+        # Deduplicate while preserving order.
+        seen: set[str] = set()
+        variants = [v for v in variants if not (v in seen or seen.add(v))]
 
-        if drift <= max_drift_km:
-            print(
-                f"  Text geocoding ({label}): accepted — drift {drift:.2f} km  "
-                f"→ ({nom_lat:.5f}, {nom_lon:.5f})"
-            )
-            return nom_lat, nom_lon, label
+        for q in variants:
+            candidates = _nominatim_geocode(q, gps_lat=gps_lat, gps_lon=gps_lon)
+            if not candidates:
+                continue
 
-        print(f"  Text geocoding ({label}): rejected — drift {drift:.2f} km > {max_drift_km} km")
+            within = [
+                (la, lo, haversine_km(gps_lat, gps_lon, la, lo))
+                for la, lo in candidates
+            ]
+            within = [(la, lo, d) for la, lo, d in within if d <= max_drift_km]
+
+            if within:
+                nom_lat, nom_lon, drift = min(within, key=lambda x: x[2])
+                print(f"  Text geocoding ({label}): '{q}' → "
+                      f"({nom_lat:.5f}, {nom_lon:.5f})  drift={drift:.2f} km  "
+                      f"(picked closest of {len(candidates)} hits) ✓")
+                return nom_lat, nom_lon, label
+
+            best_drift = min(haversine_km(gps_lat, gps_lon, la, lo)
+                             for la, lo in candidates)
+            print(f"  Text geocoding ({label}): '{q}' → "
+                  f"{len(candidates)} hits, closest {best_drift:.1f} km > "
+                  f"{max_drift_km} — rejected")
 
     print("  Text geocoding: all sources failed — using GPS centre")
     return gps_lat, gps_lon, "gps"
 
 
-# ── Internals ─────────────────────────────────────────────────────────────────
-
 def _clean_for_geocoding(text: str) -> str:
-    """Strip HTML, dates, and archive boilerplate from a free-text field."""
-    text = re.sub(r"<[^>]+>", " ", text)    # remove HTML tags
+    text = re.sub(r"<[^>]+>", " ", text)        # strip HTML
     text = _DATES.sub("", text)
     text = _ARCHIVE_NOISE.sub("", text)
     text = re.sub(r"\s{2,}", " ", text).strip(" ,;:-.")
     return text
 
 
-def _nominatim_geocode(text: str, timeout: int = 6) -> Optional[tuple[float, float]]:
-    """
-    Geocode a single text string via Nominatim.
+def _nominatim_geocode(
+    text: str,
+    gps_lat: Optional[float] = None,
+    gps_lon: Optional[float] = None,
+    timeout: int = 10,
+) -> list[tuple[float, float]]:
+    """Return up to 10 candidate (lat, lon) pairs. Errors are logged, not silenced."""
+    if len(text) < 5:
+        return []
 
-    Always sleeps ≥ 1.1 s after a request to honour Nominatim's
-    1 request/second rate limit policy.
-
-    Returns (lat, lon) on success, None otherwise.
-    """
-    cleaned = _clean_for_geocoding(text)
-    if len(cleaned) < 5:
-        return None
+    params: dict = {"q": text, "format": "json", "limit": 10}
+    if gps_lat is not None and gps_lon is not None:
+        params["viewbox"] = (
+            f"{gps_lon - 0.5},{gps_lat + 0.5},"
+            f"{gps_lon + 0.5},{gps_lat - 0.5}"
+        )
+        params["bounded"] = 0
 
     try:
-        resp = requests.get(
-            NOMINATIM_URL,
-            params={"q": cleaned, "format": "json", "limit": 1},
-            headers=_HEADERS,
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        results = resp.json()
-        if results:
-            return float(results[0]["lat"]), float(results[0]["lon"])
-    except Exception:
-        pass
+        resp = requests.get(NOMINATIM_URL, params=params,
+                            headers=_HEADERS, timeout=timeout)
+        if resp.status_code != 200:
+            print(f"  [nominatim {resp.status_code}] '{text}' → "
+                  f"{resp.text[:120]}")
+            return []
+        results = resp.json() or []
+        return [(float(r["lat"]), float(r["lon"])) for r in results]
+    except requests.RequestException as e:
+        print(f"  [nominatim network error] '{text}': {e}")
+        return []
+    except (ValueError, KeyError) as e:
+        print(f"  [nominatim parse error] '{text}': {e}")
+        return []
     finally:
         time.sleep(1.1)
-
-    return None
