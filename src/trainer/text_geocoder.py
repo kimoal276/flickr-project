@@ -12,7 +12,7 @@ from .geo_utils import haversine_km
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # IMPORTANT: replace the email below with yours. Nominatim requires a real UA.
-_HEADERS = {"User-Agent": "flickr-project/1.0 (firstname.name@epfl.ch)"}
+_HEADERS = {"User-Agent": "flickr-project/1.0 (karim.alameddine@epfl.ch)"}
 
 # Conservative noise regex — DO NOT strip building-type words like
 # "library/museum/university/institute"; those are often the actual subject.
@@ -33,7 +33,7 @@ def refine_center(
     gps_lon: float,
     title: str,
     description: str = "",
-    max_drift_km: float = 50.0,
+    max_drift_km: float = 5.0,
 ) -> tuple[float, float, str]:
     """
     Geocode title/description with Nominatim, biased to the Flickr GPS.

@@ -162,8 +162,8 @@ def _to_gray_tensor(img: Image.Image, max_size: int, device: torch.device) -> to
 def match_buildings(
     image_a: Union[str, Image.Image],
     image_b: Union[str, Image.Image],
-    max_size: int = 640,
-    confidence_threshold: float = 0.3,
+    max_size: int = 1024,
+    confidence_threshold: float = 0.5,
     ransac_threshold: float = 3.0,
 ) -> dict:
     """

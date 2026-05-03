@@ -65,7 +65,7 @@ def _get_token() -> str:
 
 # ── Fetching ──────────────────────────────────────────────────────────────────
 
-def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=50):
+def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     token = _get_token()
     TILE_SIZE = 0.005
     PER_TILE  = 25                       # was effectively 10
@@ -82,7 +82,7 @@ def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=50):
                 "access_token": token,
                 "fields":       "id,geometry,thumb_1024_url,captured_at",
                 "bbox":         f"{tile[0]},{tile[1]},{tile[2]},{tile[3]}",
-                "limit":        2000,
+                "limit":        1000,
             }
             try:
                 resp = requests.get(f"{MAPILLARY_BASE}/images",
@@ -249,8 +249,8 @@ def rank_candidates_dual(
 def rank_candidates_loftr(
     archive_image: Union[str, Image.Image],
     candidates: list[dict],
-    min_inliers: int = 8,
-    prefilter_top_k: int = 15,
+    min_inliers: int = 14,
+    prefilter_top_k: int = 30,
 ) -> list[dict]:
     """
     Two-stage ranking:
@@ -297,7 +297,7 @@ def rank_candidates_loftr(
         for idx, cand in enumerate(candidates):
             cand_vec = _safe_encode(cand["thumb_url"],
                                     model=EncoderModel.SIGLIP,
-                                    preprocess_archive=False)
+                                    preprocess_archive=True)
             if cand_vec is None:
                 continue
             sim = similarity(archive_vec, cand_vec)

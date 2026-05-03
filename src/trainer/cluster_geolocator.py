@@ -24,8 +24,8 @@ load_dotenv()
 # ── Configuration constants ───────────────────────────────────────────────────
 # Adaptive parameters split by vision_label (YES = building, else = generic)
 
-RADIUS_BUILDING: float = 0.5           # search radius (km)
-RADIUS_DEFAULT:  float = 1.0
+RADIUS_BUILDING: float = 0.15           
+RADIUS_DEFAULT:  float = 0.5
 
 # GPS distance penalty weight (km⁻¹) — set to 0: pure visual matching.
 # The archive GPS is often cluster-level (one decimal place), so using
@@ -320,19 +320,23 @@ def geolocate(
             "support_score": top.get("support_score", 0.0),
         },
         "all_ranked": [
-            {
-                "mapillary_id": r["mapillary_id"],
-                "lat":          r["lat"],
-                "lon":          r["lon"],
-                "similarity":   r["similarity"],
-                "dino_score":   r.get("dino_score"),
-                "siglip_score": r.get("siglip_score"),
-                "distance_km":  r["distance_km"],
-                "final_score":  r["final_score"],
-                "cluster_score": r.get("cluster_score", r["final_score"]),
-            }
-            for r in ranked[:top_k]
-        ],
+    {
+        "mapillary_id":  r["mapillary_id"],
+        "lat":           r["lat"],
+        "lon":           r["lon"],
+        "thumb_url":     r.get("thumb_url"),
+        "similarity":    r["similarity"],
+        "inliers":       r.get("inliers"),
+        "match_total":   r.get("match_total"),
+        "inlier_ratio":  r.get("inlier_ratio"),
+        "dino_score":    r.get("dino_score"),
+        "siglip_score":  r.get("siglip_score"),
+        "distance_km":   r["distance_km"],
+        "final_score":   r["final_score"],
+        "cluster_score": r.get("cluster_score", r["final_score"]),
+    }
+    for r in ranked[:top_k]
+],
     }
 
 
@@ -356,27 +360,6 @@ def batch_geolocate(
     matcher: str = "loftr",
     seed: Optional[int] = None,
 ) -> None:
-    """
-    Run geolocate() on a batch of photos from flickr_clusters.csv
-    and write results to a CSV file.
-
-    Parameters
-    ----------
-    csv_path:           Source CSV (default: flickr_clusters.csv).
-    num_photos:         How many photos to process.
-    out_csv:            Destination CSV path for results.
-    vision_filter:      "YES" / "NO" / None — filter by vision_label.
-    institution_filter: Case-insensitive substring match on source_dataset.
-    photo_id:           Run on a single specific photo ID.
-    radius_km:          Override adaptive radius for all photos (km).
-    mapillary_limit:    Max Mapillary candidates fetched per photo.
-    top_k:              Number of top matches saved per photo in the CSV.
-    use_text_geocoding: Enable Nominatim text geocoding for search refinement.
-    use_dual_encoder:   Use DINOv2 + SigLIP fusion (recommended).
-    alpha:              DINOv2 weight in the fused score.
-    single_encoder:     Backbone to use when use_dual_encoder=False.
-    seed:               Random seed for reproducible photo selection.
-    """
     out_path = Path(out_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -413,31 +396,31 @@ def batch_geolocate(
             print(f"  Unhandled error: {exc}")
             result = None
 
-        if result and result.get("top_match", {}).get("thumb_url"):
+        # Save per-rank comparison images
+        # Save best-match comparison
+    if result and result.get("all_ranked"):
+        cand = result["all_ranked"][0]
+        if cand.get("thumb_url"):
+            top_for_render = {
+            "mapillary_id": cand["mapillary_id"],
+            "thumb_url":    cand["thumb_url"],
+            "pred_lat":     cand["lat"],
+            "pred_lon":     cand["lon"],
+        }
             comp = _save_comparison(
-                photo=result["photo"],
-                top=result["top_match"],
-                out_dir=Path(out_csv).parent / "comparisons",
-            )
+            photo=result["photo"],
+            top=top_for_render,
+            out_dir=Path(out_csv).parent / "comparisons",
+        )
             if comp:
-                print(f"  Comparison → {comp}")
+                inl = cand.get("inliers", "?")
+                ratio = cand.get("inlier_ratio") or 0
+            print(f"  Comparison ({inl} inliers, ratio={ratio:.2f}) → {comp}")
 
         rows.append(_to_row(photo, result))
-
+    
     _write_csv(rows, out_path)
     _print_summary(rows)
-
-
-# ── CSV output helpers ────────────────────────────────────────────────────────
-
-_CSV_FIELDS = [
-    "photo_id", "source_dataset", "title", "vision_label",
-    "flickr_lat", "flickr_lon",
-    "pred_lat", "pred_lon", "mapillary_id",
-    "similarity", "dino_score", "siglip_score",
-    "final_score", "cluster_score", "neighbors",
-    "distance_km", "center_source", "status",
-]
 
 def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
     """Side-by-side comparison JPEG. Verbose: prints what it's doing at each step."""
@@ -508,6 +491,15 @@ def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
         print(f"  [comparison] FAILED: {type(exc).__name__}: {exc}")
         traceback.print_exc()
         return None
+
+_CSV_FIELDS = [
+    "photo_id", "source_dataset", "title", "vision_label",
+    "flickr_lat", "flickr_lon",
+    "pred_lat", "pred_lon", "mapillary_id",
+    "similarity", "dino_score", "siglip_score",
+    "final_score", "cluster_score", "neighbors",
+    "distance_km", "center_source", "status",
+]
 
 def _to_row(photo: dict, result: Optional[dict]) -> dict:
     base = {
@@ -676,7 +668,7 @@ def _parse_args() -> argparse.Namespace:
                    help="Substring match on title column (case-insensitive)")
     p.add_argument("--radius_km",      type=float, default=None,
                    help="Override adaptive search radius (km)")
-    p.add_argument("--mapillary_limit",type=int,   default=50)
+    p.add_argument("--mapillary_limit",type=int,   default=300)
     p.add_argument("--top_k",          type=int,   default=5)
     p.add_argument("--no_text_geocoding", action="store_true",
                    help="Skip Nominatim text geocoding (faster, GPS only)")
