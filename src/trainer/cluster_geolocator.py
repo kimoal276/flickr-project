@@ -137,7 +137,7 @@ def load_photos(
 def geolocate(
     photo: dict,
     radius_km: Optional[float] = None,
-    mapillary_limit: int = 200,
+    mapillary_limit: int = 100,
     top_k: int = 5,
     use_text_geocoding: bool = True,
     use_dual_encoder: bool = False,
@@ -276,6 +276,12 @@ def geolocate(
         return None
 
     top = ranked[0]
+    # Reject if no real geometric match was found
+    """MIN_INLIERS = 15
+    if top.get("inliers") is not None and top["inliers"] < MIN_INLIERS:
+        print(f"  ✗ No confident match — best inlier count was {top['inliers']} "
+          f"(threshold: {MIN_INLIERS}). Photo likely not in Mapillary coverage.")
+        return None"""
     pred_lat, pred_lon = top["lat"], top["lon"]
     distance_km = haversine_km(gps_lat, gps_lon, pred_lat, pred_lon)
     

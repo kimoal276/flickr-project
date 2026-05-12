@@ -246,7 +246,7 @@ def rank_candidates_loftr(
     archive_image: Union[str, Image.Image],
     candidates: list[dict],
     min_inliers: int = 14,
-    prefilter_top_k: int = 30,
+    prefilter_top_k: int = 15,
 ) -> list[dict]:
     """
     Two-stage ranking:
@@ -283,7 +283,8 @@ def rank_candidates_loftr(
     else:
         archive_pil = archive_image
 
-    # STAGE 1: SigLIP pre-filter     if prefilter_top_k is not None and len(candidates) > prefilter_top_k:
+    # STAGE 1: SigLIP pre-filter     
+    if prefilter_top_k is not None and len(candidates) > prefilter_top_k:
         print(f"  Stage 1: SigLIP pre-filter on {len(candidates)} candidates …")
         archive_vec = encode(archive_pil, model=EncoderModel.SIGLIP,
                              preprocess_archive=True)

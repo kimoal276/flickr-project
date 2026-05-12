@@ -161,7 +161,7 @@ def _to_gray_tensor(img: Image.Image, max_size: int, device: torch.device) -> to
 def match_buildings(
     image_a: Union[str, Image.Image],
     image_b: Union[str, Image.Image],
-    max_size: int = 1024,
+    max_size: int = 512,
     confidence_threshold: float = 0.5,
     ransac_threshold: float = 3.0,
 ) -> dict:
@@ -204,15 +204,15 @@ def match_buildings(
     kp1   = kp1[mask]
     total = len(kp0)
 
-    if total < 8:   # need minimum 8 points for fundamental matrix estimation
+    if total < 4:   # need minimum 8 points for fundamental matrix estimation
         return {"inliers": 0, "total": total, "inlier_ratio": 0.0}
 
-    _, inliers = cv2.findFundamentalMat(
+    _, inliers = cv2.findHomography(
         kp0, kp1,
         cv2.USAC_MAGSAC,
         ransacReprojThreshold=ransac_threshold,
-        confidence=0.999,
-        maxIters=10_000,
+        confidence=0.99,
+        maxIters=2_000,
     )
     n_inliers = int(inliers.sum()) if inliers is not None else 0
 
