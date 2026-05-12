@@ -1,2 +1,2 @@
 photo_id,source_dataset,title,vision_label,flickr_lat,flickr_lon,pred_lat,pred_lon,mapillary_id,similarity,dino_score,siglip_score,final_score,cluster_score,neighbors,distance_km,center_source,status
-7960202060,State Library of Queensland Australia,External view of the Deutscher Turn_Verein building Brisbane,YES,-27.467764,153.022899,-27.467576961249,153.02273898107,308427464228547,24.0,,,24.0,24.0,0,0.026111133008367978,gps,ok
+52149337981,Community Archives of Belleville  Hastings County,MG 5-2-J-8,YES,44.169261,-77.381483,44.16817453,-77.38286551,786186615421582,10.0,,,10.0,10.0,0,0.16356660024881697,gps,ok

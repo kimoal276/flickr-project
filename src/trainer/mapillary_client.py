@@ -1,14 +1,14 @@
 """
 mapillary_client.py
--------------------
+
 Fetches Mapillary street-level image candidates and ranks them against a
 historical archive photo using visual feature matching.
 
-Ranking score
--------------
+Ranking score :
+
 Each candidate is scored by:
 
-    score = visual_similarity − distance_weight × distance_km
+score = visual_similarity − distance_weight × distance_km
 
 where visual_similarity is computed by the encoder module.  The default
 encoder is DINOv2 (structural/geometric features), optionally fused with
@@ -20,7 +20,7 @@ intentionally small: we want the *visual match* to drive the ranking, with
 geography as a soft constraint, not the other way round.
 
 Public API
-----------
+
 fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit) → list[dict]
 rank_candidates(archive_vec, candidates, ref_lat, ref_lon,
                 distance_weight, candidate_model) → list[ScoredCandidate]
@@ -54,8 +54,7 @@ load_dotenv()
 MAPILLARY_BASE = "https://graph.mapillary.com"
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
-
+# Auth 
 def _get_token() -> str:
     token = os.getenv("MAPILLARY_ACCESS_TOKEN")
     if not token:
@@ -63,8 +62,7 @@ def _get_token() -> str:
     return token
 
 
-# ── Fetching ──────────────────────────────────────────────────────────────────
-
+# Fetching 
 def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     token = _get_token()
     TILE_SIZE = 0.005
@@ -110,8 +108,7 @@ def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     return candidates[:limit]
 
 
-# ── Single-model ranking ──────────────────────────────────────────────────────
-
+# Single-model ranking 
 def rank_candidates(
     archive_vec: np.ndarray,
     candidates: list[dict],
@@ -131,7 +128,7 @@ def rank_candidates(
     and you want a single-model comparison.
 
     Parameters
-    ----------
+    
     archive_vec:      Pre-encoded archive photo embedding (768-d float32).
     candidates:       Candidates from fetch_candidates().
     ref_lat/ref_lon:  Archive GPS for the distance penalty. None to disable.
@@ -167,7 +164,7 @@ def rank_candidates(
     return scored
 
 
-# ── Dual-model ranking (recommended for archive-to-street matching) ───────────
+# Dual-model ranking (recommended for archive-to-street matching) 
 
 def rank_candidates_dual(
     archive_image: Union[str, Image.Image],
@@ -200,7 +197,7 @@ def rank_candidates_dual(
     way so both embeddings live in the same colour-neutral space.
 
     Parameters
-    ----------
+    
     archive_image:      URL string or PIL Image of the historical photo.
     candidates:         Candidates from fetch_candidates().
     ref_lat/ref_lon:    Archive GPS for distance penalty (None to disable).
@@ -244,8 +241,7 @@ def rank_candidates_dual(
     return scored
 
 
-# ── LoFTR-based ranking (PROPER building identification) ──────────────────────
-
+# LoFTR-based ranking (PROPER building identification) 
 def rank_candidates_loftr(
     archive_image: Union[str, Image.Image],
     candidates: list[dict],
@@ -287,8 +283,7 @@ def rank_candidates_loftr(
     else:
         archive_pil = archive_image
 
-    # ── STAGE 1: SigLIP pre-filter ────────────────────────────────────────
-    if prefilter_top_k is not None and len(candidates) > prefilter_top_k:
+    # STAGE 1: SigLIP pre-filter     if prefilter_top_k is not None and len(candidates) > prefilter_top_k:
         print(f"  Stage 1: SigLIP pre-filter on {len(candidates)} candidates …")
         archive_vec = encode(archive_pil, model=EncoderModel.SIGLIP,
                              preprocess_archive=True)
@@ -309,7 +304,7 @@ def rank_candidates_loftr(
               f"(SigLIP scores: {candidates[0]['_siglip']:.3f} … "
               f"{candidates[-1]['_siglip']:.3f})")
 
-    # ── STAGE 2: LoFTR + RANSAC on the survivors ──────────────────────────
+    # STAGE 2: LoFTR + RANSAC on the survivors     
     scored = []
     for idx, cand in enumerate(candidates):
         try:
@@ -340,90 +335,13 @@ def rank_candidates_loftr(
               f"id={cand['mapillary_id']}")
 
     scored.sort(
-    key=lambda x: (x["inliers"], x["inlier_ratio"], x["mapillary_id"]),
-    reverse=True,
-)
-    print(f"  [debug] LoFTR survivors: "
-          f"{[c['mapillary_id'] for c in candidates]}")
+        key=lambda x: (x["inliers"], x["inlier_ratio"], x["mapillary_id"]),
+        reverse=True,
+    )
+    print(f"  [debug] LoFTR survivors: {[c['mapillary_id'] for c in candidates]}")
     return scored
 
-# ── Spatial cluster re-ranking ────────────────────────────────────────────────
-
-def rerank_by_cluster(
-    candidates: list[dict],
-    cluster_radius_km: float = 0.2,
-) -> list[dict]:
-    """
-    Boost candidates that are surrounded by other high-scoring neighbours.
-
-    For each candidate c:
-        cluster_score = final_score + 0.1 × mean_neighbour_similarity
-
-    The neighbour count is capped at 5 so that a busy intersection with 40
-    Mapillary images does not outrank a visually correct but quieter street.
-    Only applied when similarity > MIN_SIM to prevent weak matches getting
-    a free spatial lift.
-    """
-    MIN_SIM = 0.30
-    reranked = []
-    for i, cand in enumerate(candidates):
-        neighbours = [
-            other for j, other in enumerate(candidates)
-            if j != i
-            and haversine_km(cand["lat"], cand["lon"],
-                             other["lat"], other["lon"]) <= cluster_radius_km
-        ]
-        # Cap at 5 so dense streets don't dominate over visual similarity
-        top_neighbours = sorted(neighbours, key=lambda x: x["similarity"], reverse=True)[:5]
-        n        = len(top_neighbours)
-        mean_sim = sum(nb["similarity"] for nb in top_neighbours) / n if n else 0.0
-
-        if cand["similarity"] >= MIN_SIM:
-            clust_score = cand["final_score"] + 0.10 * mean_sim
-        else:
-            clust_score = cand["final_score"]
-
-        reranked.append(
-            {
-                **cand,
-                "neighbors":     len(neighbours),   # log real count for diagnostics
-                "support_score": mean_sim,
-                "cluster_score": clust_score,
-            }
-        )
-
-    reranked.sort(key=lambda x: x["cluster_score"], reverse=True)
-    return reranked
-
-
-# ── Location prediction ───────────────────────────────────────────────────────
-
-def predict_location(
-    ranked: list[dict],
-    centroid_radius_km: float = 0.15,
-) -> tuple[float, float]:
-    """
-    Predict (lat, lon) as the centroid of the top match's tight cluster.
-
-    Falls back to a 2-element average when no other candidates lie within
-    centroid_radius_km of the top match.
-    """
-    top     = ranked[0]
-    cluster = [
-        r for r in ranked
-        if haversine_km(top["lat"], top["lon"],
-                        r["lat"],  r["lon"]) <= centroid_radius_km
-    ]
-    if len(cluster) < 2:
-        cluster = ranked[: min(2, len(ranked))]
-
-    return (
-        sum(r["lat"] for r in cluster) / len(cluster),
-        sum(r["lon"] for r in cluster) / len(cluster),
-    )
-
-
-# ── Internals ─────────────────────────────────────────────────────────────────
+# Internals 
 
 def _safe_encode(
     url: str,

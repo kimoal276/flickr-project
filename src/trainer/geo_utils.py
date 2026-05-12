@@ -19,8 +19,7 @@ from typing import Optional
 import numpy as np
 
 
-# ── Geography ────────────────────────────────────────────────────────────────
-
+# Geography 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Return the great-circle distance in kilometres between two GPS points."""
     R = 6_371.0
@@ -46,16 +45,7 @@ def bbox_from_center(
     deg_lon = radius_km / (111.0 * cos_lat)
     return lat - deg_lat, lon - deg_lon, lat + deg_lat, lon + deg_lon
 
-
-# ── Embeddings ────────────────────────────────────────────────────────────────
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two L2-normalisable vectors."""
-    denom = np.linalg.norm(a) * np.linalg.norm(b) + 1e-8
-    return float(np.dot(a, b) / denom)
-
-
-# ── Parsing ───────────────────────────────────────────────────────────────────
+# Parsing 
 
 def parse_float(value) -> Optional[float]:
     """

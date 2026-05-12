@@ -1,7 +1,7 @@
 """
 building_matcher.py
 -------------------
-Computer-vision–based identification of the same building across photos.
+Computer-vision based identification of the same building across photos.
 
 The central idea
 ----------------
@@ -24,7 +24,7 @@ robust signal for "same building", invariant to:
 
 Pipeline
 --------
-1. LoFTR (Sun et al., CVPR 2021) — transformer-based dense matcher,
+1. LoFTR — transformer-based dense matcher,
    pretrained on MegaDepth outdoor scenes.  Produces keypoint
    correspondences and per-match confidence scores.
 2. Filter by LoFTR confidence (≥ 0.5).
@@ -61,7 +61,7 @@ import torch
 from PIL import Image
 
 
-# ── Lazy model loader ─────────────────────────────────────────────────────────
+# Lazy model loader 
 
 _matcher: KF.LoFTR | None = None
 _device:  torch.device  | None = None
@@ -129,7 +129,7 @@ def _load_matcher() -> tuple[KF.LoFTR, torch.device]:
     return _matcher, _device
 
 
-# ── Image I/O ─────────────────────────────────────────────────────────────────
+# Image I/O 
 
 def _load_image(image_or_url: Union[str, Image.Image], timeout: int = 20) -> Image.Image:
     if isinstance(image_or_url, str):
@@ -157,8 +157,7 @@ def _to_gray_tensor(img: Image.Image, max_size: int, device: torch.device) -> to
     return torch.from_numpy(arr)[None, None].to(device)
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
+# Public API 
 def match_buildings(
     image_a: Union[str, Image.Image],
     image_b: Union[str, Image.Image],

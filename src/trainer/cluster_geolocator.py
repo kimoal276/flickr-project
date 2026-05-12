@@ -21,7 +21,7 @@ from .text_geocoder import refine_center
 load_dotenv()
 
 
-# ── Configuration constants ───────────────────────────────────────────────────
+# Configuration constants 
 # Adaptive parameters split by vision_label (YES = building, else = generic)
 
 RADIUS_BUILDING: float = 0.15           
@@ -43,7 +43,7 @@ MIN_CONFIDENCE: float = 0.65
 DEFAULT_ALPHA: float = 0.7
 
 
-# ── CSV loading ────────────────────────────────────────────────────────────────
+# CSV loading 
 
 def load_photos(
     csv_path: str = "flickr_clusters.csv",
@@ -132,7 +132,7 @@ def load_photos(
     return selected
 
 
-# ── Core geolocator ───────────────────────────────────────────────────────────
+# Core geolocator 
 
 def geolocate(
     photo: dict,
@@ -184,21 +184,21 @@ def geolocate(
     gps_lon     = photo["longitude"]
     is_building = vision == "YES"
 
-    # ── per-type hyper-parameters ─────────────────────────────────────────────
+    # per-type hyper-parameters 
     eff_radius  = radius_km if radius_km is not None else (
                       RADIUS_BUILDING if is_building else RADIUS_DEFAULT)
     dist_weight = DIST_WEIGHT_BUILDING if is_building else DIST_WEIGHT_DEFAULT
 
     _print_header(photo, eff_radius, dist_weight, use_dual_encoder, alpha)
 
-    # ── step 1: text-geocode the search centre ────────────────────────────────
+    # step 1: text-geocode the search centre 
     center_lat, center_lon, center_src = gps_lat, gps_lon, "gps"
     if use_text_geocoding:
         center_lat, center_lon, center_src = refine_center(
             gps_lat, gps_lon, title=title, description=description
         )
 
-    # ── step 2: fetch Mapillary candidates ────────────────────────────────────
+    # step 2: fetch Mapillary candidates 
     min_lat, min_lon, max_lat, max_lon = bbox_from_center(
         center_lat, center_lon, eff_radius
     )
@@ -224,7 +224,7 @@ def geolocate(
             print("  No Mapillary coverage found — skipping photo.")
             return None
 
-    # ── step 3: visual ranking ────────────────────────────────────────────────
+    # step 3: visual ranking 
     if matcher == "loftr":
         # Geometric feature matching — the correct CV approach for
         # identifying the same building across photos.
@@ -267,7 +267,7 @@ def geolocate(
             candidate_model=single_encoder,
         )
 
-    # ── step 4: pick top visual match ─────────────────────────────────────────
+    # step 4: pick top visual match 
     # Pure visual matching: the top-ranked similar image IS the prediction.
     # No cluster re-ranking (which biases toward busy streets).
     # No centroid averaging (which pulls the prediction away from the actual
@@ -278,14 +278,7 @@ def geolocate(
     top = ranked[0]
     pred_lat, pred_lon = top["lat"], top["lon"]
     distance_km = haversine_km(gps_lat, gps_lon, pred_lat, pred_lon)
-
-    # Confidence check: is the visual match actually strong enough?
-    confident = top["similarity"] >= MIN_CONFIDENCE
-
-    # CSV-schema compatibility (these columns still exist in the output)
-    top.setdefault("cluster_score", top["final_score"])
-    top.setdefault("neighbors",     0)
-    top.setdefault("support_score", 0.0)
+    
 
     _print_result(pred_lat, pred_lon, distance_km, top, center_src,
                   archive_lat=gps_lat, archive_lon=gps_lon)
@@ -340,7 +333,7 @@ def geolocate(
     }
 
 
-# ── Batch runner ──────────────────────────────────────────────────────────────
+# Batch runner 
 
 def batch_geolocate(
     csv_path: str = "flickr_clusters.csv",
@@ -574,7 +567,7 @@ def _print_summary(rows: list[dict]) -> None:
               f"{sum(r['distance_km'] for r in non)/len(non):.3f} km  (n={len(non)})")
 
 
-# ── Pretty-print helpers ──────────────────────────────────────────────────────
+# Pretty-print helpers 
 
 def _print_header(
     photo: dict,
@@ -637,12 +630,12 @@ def _print_result(
     print(f"    Match        : {match_str}")
     print(f"    Center src   : {center_src}")
     print(f"")
-    print(f"  ── Open in Mapillary ──────────────────────────────────")
+    print(f"  Open in Mapillary ──────────────────────────────────")
     print(f"    Street-level image : {mapillary_img}")
     print(f"    Location on map    : {mapillary_map}")
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# CLI 
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -668,7 +661,7 @@ def _parse_args() -> argparse.Namespace:
                    help="Substring match on title column (case-insensitive)")
     p.add_argument("--radius_km",      type=float, default=None,
                    help="Override adaptive search radius (km)")
-    p.add_argument("--mapillary_limit",type=int,   default=300)
+    p.add_argument("--mapillary_limit",type=int,   default=25)
     p.add_argument("--top_k",          type=int,   default=5)
     p.add_argument("--no_text_geocoding", action="store_true",
                    help="Skip Nominatim text geocoding (faster, GPS only)")
@@ -691,8 +684,7 @@ if __name__ == "__main__":
 
     use_dual   = args.matcher == "dual"
     single_enc = (
-        EncoderModel.SIGLIP if args.matcher == "siglip"
-        else EncoderModel.SIGLIP
+        EncoderModel.SIGLIP
     )
 
     batch_geolocate(

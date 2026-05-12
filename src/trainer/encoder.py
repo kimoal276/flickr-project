@@ -15,9 +15,9 @@ dual_similarity(archive, candidate, alpha, preprocess_archive)
     Note: dual_similarity is a SigLIP-only wrapper kept for API compatibility.
           dino_score and siglip_score will both equal the SigLIP score.
 
-encode_with_siglip(image_or_url) → np.ndarray   [legacy alias]
-encode_pil_image(image) → np.ndarray             [legacy alias]
-encode_image_from_url(url) → np.ndarray          [legacy alias]
+encode_with_siglip(image_or_url) → np.ndarray   
+encode_pil_image(image) → np.ndarray             
+encode_image_from_url(url) → np.ndarray          
 """
 
 from __future__ import annotations
@@ -33,8 +33,7 @@ from PIL import Image, ImageFilter
 from transformers import AutoModel, AutoProcessor
 
 
-# ── Model registry ────────────────────────────────────────────────────────────
-
+# Model registry 
 class EncoderModel(str, Enum):
     SIGLIP = "siglip"
     DINOV2 = "dinov2"  # kept in enum so CLI flags still parse; routes to SigLIP
@@ -55,7 +54,7 @@ def _load_siglip():
     return _siglip_processor, _siglip_model
 
 
-# ── Preprocessing ─────────────────────────────────────────────────────────────
+# Preprocessing 
 
 def preprocess_for_cross_domain(image: Image.Image) -> Image.Image:
     """
@@ -72,8 +71,7 @@ def preprocess_for_cross_domain(image: Image.Image) -> Image.Image:
     return smoothed.convert("RGB")
 
 
-# ── Core API ──────────────────────────────────────────────────────────────────
-
+# Core API 
 def encode(
     image_or_url: Union[str, Image.Image],
     model: EncoderModel = EncoderModel.SIGLIP,
@@ -130,22 +128,7 @@ def dual_similarity(
     score = similarity(vec_a, vec_b)
     return score, score, score   # fused, dino_score, siglip_score
 
-
-# ── Legacy wrappers ───────────────────────────────────────────────────────────
-
-def encode_with_siglip(image_or_url: Union[str, Image.Image]) -> np.ndarray:
-    return encode(image_or_url, model=EncoderModel.SIGLIP, preprocess_archive=False)
-
-
-def encode_pil_image(image: Image.Image) -> np.ndarray:
-    return _encode_siglip(image)
-
-
-def encode_image_from_url(url: str, timeout: int = 20) -> np.ndarray:
-    return _encode_siglip(_load_image(url, timeout=timeout))
-
-
-# ── Internals ─────────────────────────────────────────────────────────────────
+# Internals 
 
 def _load_image(image_or_url: Union[str, Image.Image], timeout: int = 20) -> Image.Image:
     if isinstance(image_or_url, str):
