@@ -204,7 +204,7 @@ def match_buildings(
     kp1   = kp1[mask]
     total = len(kp0)
 
-    if total < 4:   # need minimum 8 points for fundamental matrix estimation
+    if total < 8:   # need minimum 8 points for fundamental matrix estimation
         return {"inliers": 0, "total": total, "inlier_ratio": 0.0}
 
     _, inliers = cv2.findHomography(

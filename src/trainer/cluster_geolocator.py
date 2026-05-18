@@ -16,7 +16,6 @@ from .mapillary_client import (
     rank_candidates_dual,
     rank_candidates_loftr,
 )
-from .text_geocoder import refine_center
 
 load_dotenv()
 
@@ -24,7 +23,7 @@ load_dotenv()
 # Configuration constants 
 # Adaptive parameters split by vision_label (YES = building, else = generic)
 
-RADIUS_BUILDING: float = 0.15           
+RADIUS_BUILDING: float = 0.5           
 RADIUS_DEFAULT:  float = 0.5
 
 # GPS distance penalty weight (km⁻¹) — set to 0: pure visual matching.
@@ -139,7 +138,6 @@ def geolocate(
     radius_km: Optional[float] = None,
     mapillary_limit: int = 100,
     top_k: int = 5,
-    use_text_geocoding: bool = True,
     use_dual_encoder: bool = False,
     alpha: float = DEFAULT_ALPHA,
     single_encoder: EncoderModel = EncoderModel.SIGLIP,
@@ -154,7 +152,6 @@ def geolocate(
     radius_km:          Override the adaptive search radius (km).
     mapillary_limit:    Maximum number of Mapillary candidates to retrieve.
     top_k:              Number of ranked matches included in the output.
-    use_text_geocoding: Attempt Nominatim geocoding from title/description.
     single_encoder:     Backbone to use when use_dual_encoder=False.
 
     Returns
@@ -191,14 +188,9 @@ def geolocate(
 
     _print_header(photo, eff_radius, dist_weight, use_dual_encoder, alpha)
 
-    # step 1: text-geocode the search centre 
     center_lat, center_lon, center_src = gps_lat, gps_lon, "gps"
-    if use_text_geocoding:
-        center_lat, center_lon, center_src = refine_center(
-            gps_lat, gps_lon, title=title, description=description
-        )
 
-    # step 2: fetch Mapillary candidates 
+    # step 1: fetch Mapillary candidates 
     min_lat, min_lon, max_lat, max_lon = bbox_from_center(
         center_lat, center_lon, eff_radius
     )
@@ -221,7 +213,7 @@ def geolocate(
                                       limit=mapillary_limit)
         print(f"  {len(candidates)} candidates after retry")
         if not candidates:
-            print("  No Mapillary coverage found — skipping photo.")
+            print("No Mapillary coverage found — skipping photo.")
             return None
 
     # step 3: visual ranking 
@@ -352,7 +344,6 @@ def batch_geolocate(
     radius_km: Optional[float] = None,
     mapillary_limit: int = 50,
     top_k: int = 5,
-    use_text_geocoding: bool = True,
     use_dual_encoder: bool = False,
     alpha: float = DEFAULT_ALPHA,
     single_encoder: EncoderModel = EncoderModel.SIGLIP,
@@ -385,7 +376,6 @@ def batch_geolocate(
                 radius_km=radius_km,
                 mapillary_limit=mapillary_limit,
                 top_k=top_k,
-                use_text_geocoding=use_text_geocoding,
                 use_dual_encoder=use_dual_encoder,
                 alpha=alpha,
                 single_encoder=single_encoder,
@@ -422,7 +412,7 @@ def batch_geolocate(
     _print_summary(rows)
 
 def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
-    """Side-by-side comparison JPEG. Verbose: prints what it's doing at each step."""
+    """Side-by-side comparison JPEG,  prints what it's doing at each step."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont
     import requests
@@ -561,7 +551,6 @@ def _print_summary(rows: list[dict]) -> None:
     print(f"Median distance  : {median_d:.3f} km")
     print(f"< 500 m          : {u500}/{len(ok)}  ({100 * u500 // len(ok)}%)")
     print(f"< 1 km           : {u1km}/{len(ok)}  ({100 * u1km // len(ok)}%)")
-    print(f"Text-geocoded    : {refined}/{len(rows)}")
 
     bld = [r for r in ok if r["vision_label"] == "YES"]
     non = [r for r in ok if r["vision_label"] != "YES"]
@@ -573,7 +562,7 @@ def _print_summary(rows: list[dict]) -> None:
               f"{sum(r['distance_km'] for r in non)/len(non):.3f} km  (n={len(non)})")
 
 
-# Pretty-print helpers 
+# print helpers 
 
 def _print_header(
     photo: dict,
@@ -669,8 +658,6 @@ def _parse_args() -> argparse.Namespace:
                    help="Override adaptive search radius (km)")
     p.add_argument("--mapillary_limit",type=int,   default=25)
     p.add_argument("--top_k",          type=int,   default=5)
-    p.add_argument("--no_text_geocoding", action="store_true",
-                   help="Skip Nominatim text geocoding (faster, GPS only)")
     p.add_argument("--matcher",        default="loftr",
                    choices=["loftr", "siglip", "dual"],
                    help=(
@@ -704,7 +691,6 @@ if __name__ == "__main__":
         radius_km=args.radius_km,
         mapillary_limit=args.mapillary_limit,
         top_k=args.top_k,
-        use_text_geocoding=not args.no_text_geocoding,
         use_dual_encoder=use_dual,
         alpha=args.alpha,
         single_encoder=single_enc,

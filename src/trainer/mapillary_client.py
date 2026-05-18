@@ -246,7 +246,7 @@ def rank_candidates_loftr(
     archive_image: Union[str, Image.Image],
     candidates: list[dict],
     min_inliers: int = 14,
-    prefilter_top_k: int = 15,
+    prefilter_top_k: int = 50,
 ) -> list[dict]:
     """
     Two-stage ranking:
