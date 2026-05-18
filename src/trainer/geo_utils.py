@@ -7,17 +7,16 @@ Functions
 ---------
 haversine_km        Distance between two (lat, lon) points in kilometres.
 bbox_from_center    Bounding box around a (lat, lon) centre with a given radius.
-cosine_similarity   Normalised dot-product between two embedding vectors.
 parse_float         Safe float parser that maps "0" / "" / None → None.
 """
 
 from __future__ import annotations
-
 import math
 from typing import Optional
-
-import numpy as np
-
+from io import BytesIO
+from typing import Union
+import requests
+from PIL import Image
 
 # Geography 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -59,3 +58,12 @@ def parse_float(value) -> Optional[float]:
         return None if f == 0.0 else f
     except Exception:
         return None
+    
+def load_image(image_or_url: Union[str, Image.Image], timeout: int = 20) -> Image.Image:
+    if isinstance(image_or_url, str):
+        resp = requests.get(image_or_url, timeout=timeout)
+        resp.raise_for_status()
+        return Image.open(BytesIO(resp.content)).convert("RGB")
+    if isinstance(image_or_url, Image.Image):
+        return image_or_url.convert("RGB")
+    raise TypeError(f"Expected URL string or PIL Image, got {type(image_or_url)}")

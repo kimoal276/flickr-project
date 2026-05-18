@@ -9,15 +9,7 @@ float32 embeddings for cosine-similarity ranking.
 Public API
 ----------
 encode(image_or_url, model, preprocess_archive) → np.ndarray
-similarity(vec_a, vec_b) → float
-dual_similarity(archive, candidate, alpha, preprocess_archive)
-    → (fused_score, dino_score, siglip_score)
-    Note: dual_similarity is a SigLIP-only wrapper kept for API compatibility.
-          dino_score and siglip_score will both equal the SigLIP score.
-
-encode_with_siglip(image_or_url) → np.ndarray   
-encode_pil_image(image) → np.ndarray             
-encode_image_from_url(url) → np.ndarray          
+similarity(vec_a, vec_b) → float      
 """
 
 from __future__ import annotations
@@ -31,27 +23,18 @@ import requests
 import torch
 from PIL import Image, ImageFilter
 from transformers import AutoModel, AutoProcessor
+from .geo_utils import load_image
+
+SIGLIP_NAME = "google/siglip-base-patch16-224"
 
 
-# Model registry 
-class EncoderModel(str, Enum):
-    SIGLIP = "siglip"
-    DINOV2 = "dinov2"  # kept in enum so CLI flags still parse; routes to SigLIP
-
-
-_SIGLIP_NAME = "google/siglip-base-patch16-224"
-
-_siglip_processor = None
-_siglip_model     = None
-
-
-def _load_siglip():
-    global _siglip_processor, _siglip_model
-    if _siglip_model is None:
-        print(f"  Loading SigLIP ({_SIGLIP_NAME}) …")
-        _siglip_processor = AutoProcessor.from_pretrained(_SIGLIP_NAME)
-        _siglip_model     = AutoModel.from_pretrained(_SIGLIP_NAME).eval()
-    return _siglip_processor, _siglip_model
+def load_siglip():
+    global siglip_processor, siglip_model
+    if siglip_model is None:
+        print(f"  Loading SigLIP ({SIGLIP_NAME}) …")
+        siglip_processor = AutoProcessor.from_pretrained(SIGLIP_NAME)
+        siglip_model     = AutoModel.from_pretrained(SIGLIP_NAME).eval()
+    return siglip_processor, siglip_model
 
 
 # Preprocessing 
@@ -74,7 +57,6 @@ def preprocess_for_cross_domain(image: Image.Image) -> Image.Image:
 # Core API 
 def encode(
     image_or_url: Union[str, Image.Image],
-    model: EncoderModel = EncoderModel.SIGLIP,
     preprocess_archive: bool = False,
 ) -> np.ndarray:
     """
@@ -83,7 +65,6 @@ def encode(
     Parameters
     ----------
     image_or_url:       URL string or PIL Image.
-    model:              Ignored (SigLIP is always used). Kept for API compat.
     preprocess_archive: Apply grayscale + contrast normalisation before
                         encoding (set True for historical archive photos).
 
@@ -91,10 +72,10 @@ def encode(
     -------
     Float32 numpy array of shape (768,).
     """
-    img = _load_image(image_or_url)
+    img = load_image(image_or_url)
     if preprocess_archive:
         img = preprocess_for_cross_domain(img)
-    return _encode_siglip(img)
+    return encode_siglip(img)
 
 
 def similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -103,45 +84,8 @@ def similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
     return float(np.dot(vec_a, vec_b) / denom)
 
 
-def dual_similarity(
-    archive_url_or_img: Union[str, Image.Image],
-    candidate_url_or_img: Union[str, Image.Image],
-    alpha: float = 0.7,
-    preprocess_archive: bool = True,
-) -> tuple[float, float, float]:
-    """
-    Compatibility wrapper — returns (score, score, score) using SigLIP only.
-
-    The alpha and dual-encoder arguments are accepted but ignored.
-    Both dino_score and siglip_score are set to the SigLIP cosine similarity
-    so that any downstream code reading those fields still gets a valid number.
-    """
-    archive_img   = _load_image(archive_url_or_img)
-    candidate_img = _load_image(candidate_url_or_img)
-
-    if preprocess_archive:
-        archive_img   = preprocess_for_cross_domain(archive_img)
-        candidate_img = preprocess_for_cross_domain(candidate_img)
-
-    vec_a = _encode_siglip(archive_img)
-    vec_b = _encode_siglip(candidate_img)
-    score = similarity(vec_a, vec_b)
-    return score, score, score   # fused, dino_score, siglip_score
-
-# Internals 
-
-def _load_image(image_or_url: Union[str, Image.Image], timeout: int = 20) -> Image.Image:
-    if isinstance(image_or_url, str):
-        resp = requests.get(image_or_url, timeout=timeout)
-        resp.raise_for_status()
-        return Image.open(BytesIO(resp.content)).convert("RGB")
-    if isinstance(image_or_url, Image.Image):
-        return image_or_url.convert("RGB")
-    raise TypeError(f"Expected URL string or PIL Image, got {type(image_or_url)}")
-
-
-def _encode_siglip(image: Image.Image) -> np.ndarray:
-    processor, model = _load_siglip()
+def encode_siglip(image: Image.Image) -> np.ndarray:
+    processor, model = load_siglip()
     inputs = processor(images=image, return_tensors="pt")
     with torch.no_grad():
         vec = model.get_image_features(**inputs).pooler_output[0]

@@ -8,39 +8,15 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from .encoder import EncoderModel, encode
 from .geo_utils import bbox_from_center, haversine_km, parse_float
 from .mapillary_client import (
     fetch_candidates,
-    rank_candidates,
-    rank_candidates_dual,
     rank_candidates_loftr,
 )
 
 load_dotenv()
 
-
-# Configuration constants 
-# Adaptive parameters split by vision_label (YES = building, else = generic)
-
-RADIUS_BUILDING: float = 0.5           
-RADIUS_DEFAULT:  float = 0.5
-
-# GPS distance penalty weight (km⁻¹) — set to 0: pure visual matching.
-# The archive GPS is often cluster-level (one decimal place), so using
-# distance to rerank actively degrades quality.
-DIST_WEIGHT_BUILDING: float = 0.0
-DIST_WEIGHT_DEFAULT:  float = 0.0
-
-# Minimum visual similarity for a confident match.  Below this, the top
-# Mapillary candidate is reported but flagged as "low_confidence" — the
-# building likely isn't in Mapillary's coverage for this location.
-# Typical SigLIP values: 0.3–0.5 = unrelated, 0.5–0.7 = weak, 0.7+ = match.
-MIN_CONFIDENCE: float = 0.65
-
-# Dual-encoder fusion weight for DINOv2 (1-alpha goes to SigLIP)
-DEFAULT_ALPHA: float = 0.7
-
+SEARCH_RADIUS_KM = 0.5
 
 # CSV loading 
 
@@ -127,7 +103,6 @@ def load_photos(
     dist: dict[str, int] = {}
     for p in selected:
         dist[p["vision_label"]] = dist.get(p["vision_label"], 0) + 1
-    print(f"Loaded {len(selected)} photos  (label distribution: {dist})")
     return selected
 
 
@@ -138,10 +113,6 @@ def geolocate(
     radius_km: Optional[float] = None,
     mapillary_limit: int = 100,
     top_k: int = 5,
-    use_dual_encoder: bool = False,
-    alpha: float = DEFAULT_ALPHA,
-    single_encoder: EncoderModel = EncoderModel.SIGLIP,
-    matcher: str = "loftr",
 ) -> Optional[dict]:
     """
     Geolocate a single archive photo against Mapillary street-level imagery.
@@ -179,32 +150,23 @@ def geolocate(
     vision      = photo["vision_label"]
     gps_lat     = photo["latitude"]
     gps_lon     = photo["longitude"]
-    is_building = vision == "YES"
 
-    # per-type hyper-parameters 
-    eff_radius  = radius_km if radius_km is not None else (
-                      RADIUS_BUILDING if is_building else RADIUS_DEFAULT)
-    dist_weight = DIST_WEIGHT_BUILDING if is_building else DIST_WEIGHT_DEFAULT
-
-    _print_header(photo, eff_radius, dist_weight, use_dual_encoder, alpha)
-
-    center_lat, center_lon, center_src = gps_lat, gps_lon, "gps"
-
+    center_lat, center_lon, = gps_lat, gps_lon
     # step 1: fetch Mapillary candidates 
     min_lat, min_lon, max_lat, max_lon = bbox_from_center(
-        center_lat, center_lon, eff_radius
+        center_lat, center_lon, SEARCH_RADIUS_KM
     )
-    print(
-        f"  Bbox ({center_src}): "
-        f"({min_lat:.4f},{min_lon:.4f}) → ({max_lat:.4f},{max_lon:.4f})"
-    )
+    print(f"  Photo ID : {photo_id}")
+    print(f"  Title    : {title}")
+    print(f"  GPS      : {gps_lat:.5f}, {gps_lon:.5f}")
+    print(f"  Bbox     : ({min_lat:.4f},{min_lon:.4f}) → ({max_lat:.4f},{max_lon:.4f})")
 
     candidates = fetch_candidates(min_lat, min_lon, max_lat, max_lon,
                                   limit=mapillary_limit)
     print(f"  {len(candidates)} Mapillary candidates fetched")
 
     if not candidates:
-        retry_radius = eff_radius * 2
+        retry_radius = SEARCH_RADIUS_KM * 2
         min_lat, min_lon, max_lat, max_lon = bbox_from_center(
             center_lat, center_lon, retry_radius
         )
@@ -217,50 +179,16 @@ def geolocate(
             return None
 
     # step 3: visual ranking 
-    if matcher == "loftr":
-        # Geometric feature matching — the correct CV approach for
-        # identifying the same building across photos.
-        print(f"  Matching against {len(candidates)} candidates with LoFTR …")
-        ranked = rank_candidates_loftr(
-            archive_image=photo["image_url"],
-            candidates=candidates,
-        )
-    elif use_dual_encoder:
-        # Pass the raw image URL — dual encoder handles loading + preprocessing
-        ranked = rank_candidates_dual(
-            archive_image=photo["image_url"],
-            candidates=candidates,
-            ref_lat=gps_lat,
-            ref_lon=gps_lon,
-            distance_weight=dist_weight,
-            alpha=alpha,
-            preprocess_archive=True,    # grayscale + contrast norm for archive
-        )
-    else:
-        # Pre-encode archive image, then rank candidates with the same model
-        print(f"  Encoding archive image with {single_encoder.value} …")
-        try:
-            archive_vec = encode(
-                photo["image_url"],
-                model=single_encoder,
-                preprocess_archive=True,
-            )
-            print(f"  Encoded  (dim={archive_vec.shape[0]})")
-        except Exception as exc:
-            print(f"  Encoding failed: {exc}")
-            return None
-
-        ranked = rank_candidates(
-            archive_vec=archive_vec,
-            candidates=candidates,
-            ref_lat=gps_lat,
-            ref_lon=gps_lon,
-            distance_weight=dist_weight,
-            candidate_model=single_encoder,
-        )
-
+    # Geometric feature matching — the correct CV approach for
+    # identifying the same building across photos.
+    print(f"  Matching against {len(candidates)} candidates with LoFTR …")
+    ranked = rank_candidates_loftr(
+    archive_image=photo["image_url"],
+    candidates=candidates,
+    )
+    
     # step 4: pick top visual match 
-    # Pure visual matching: the top-ranked similar image IS the prediction.
+    # Pure visual matching: the top-ranked similar image is the prediction.
     # No cluster re-ranking (which biases toward busy streets).
     # No centroid averaging (which pulls the prediction away from the actual
     # matched image).  The top Mapillary image's own coordinates are returned.
@@ -269,17 +197,16 @@ def geolocate(
 
     top = ranked[0]
     # Reject if no real geometric match was found
-    """MIN_INLIERS = 15
+    MIN_INLIERS = 6
     if top.get("inliers") is not None and top["inliers"] < MIN_INLIERS:
         print(f"  ✗ No confident match — best inlier count was {top['inliers']} "
-          f"(threshold: {MIN_INLIERS}). Photo likely not in Mapillary coverage.")
-        return None"""
+          f"(Photo likely not in Mapillary coverage.")
+        return None
     pred_lat, pred_lon = top["lat"], top["lon"]
     distance_km = haversine_km(gps_lat, gps_lon, pred_lat, pred_lon)
     
 
-    _print_result(pred_lat, pred_lon, distance_km, top, center_src,
-                  archive_lat=gps_lat, archive_lon=gps_lon)
+    print_result(distance_km, top)
 
     return {
         "photo": {
@@ -292,7 +219,6 @@ def geolocate(
             "original_lat":   gps_lat,
             "original_lon":   gps_lon,
             "image_url":      photo["image_url"],
-            "center_source":  center_src,
         },
         "top_match": {
             "mapillary_id":  top["mapillary_id"],
@@ -301,14 +227,10 @@ def geolocate(
             "top_image_lat": top["lat"],
             "top_image_lon": top["lon"],
             "similarity":    top["similarity"],
-            "dino_score":    top.get("dino_score"),
-            "siglip_score":  top.get("siglip_score"),
             "thumb_url":     top["thumb_url"],
             "distance_km":   distance_km,
             "final_score":   top["final_score"],
             "cluster_score": top.get("cluster_score", top["final_score"]),
-            "neighbors":     top.get("neighbors", 0),
-            "support_score": top.get("support_score", 0.0),
         },
         "all_ranked": [
     {
@@ -320,11 +242,7 @@ def geolocate(
         "inliers":       r.get("inliers"),
         "match_total":   r.get("match_total"),
         "inlier_ratio":  r.get("inlier_ratio"),
-        "dino_score":    r.get("dino_score"),
-        "siglip_score":  r.get("siglip_score"),
         "distance_km":   r["distance_km"],
-        "final_score":   r["final_score"],
-        "cluster_score": r.get("cluster_score", r["final_score"]),
     }
     for r in ranked[:top_k]
 ],
@@ -344,10 +262,6 @@ def batch_geolocate(
     radius_km: Optional[float] = None,
     mapillary_limit: int = 50,
     top_k: int = 5,
-    use_dual_encoder: bool = False,
-    alpha: float = DEFAULT_ALPHA,
-    single_encoder: EncoderModel = EncoderModel.SIGLIP,
-    matcher: str = "loftr",
     seed: Optional[int] = None,
 ) -> None:
     out_path = Path(out_csv)
@@ -376,42 +290,37 @@ def batch_geolocate(
                 radius_km=radius_km,
                 mapillary_limit=mapillary_limit,
                 top_k=top_k,
-                use_dual_encoder=use_dual_encoder,
-                alpha=alpha,
-                single_encoder=single_encoder,
-                matcher=matcher,
             )
         except Exception as exc:
             print(f"  Unhandled error: {exc}")
             result = None
 
-        # Save per-rank comparison images
-        # Save best-match comparison
-    if result and result.get("all_ranked"):
-        cand = result["all_ranked"][0]
-        if cand.get("thumb_url"):
-            top_for_render = {
-            "mapillary_id": cand["mapillary_id"],
-            "thumb_url":    cand["thumb_url"],
-            "pred_lat":     cand["lat"],
-            "pred_lon":     cand["lon"],
-        }
-            comp = _save_comparison(
-            photo=result["photo"],
-            top=top_for_render,
-            out_dir=Path(out_csv).parent / "comparisons",
-        )
-            if comp:
-                inl = cand.get("inliers", "?")
-                ratio = cand.get("inlier_ratio") or 0
-            print(f"  Comparison ({inl} inliers, ratio={ratio:.2f}) → {comp}")
+        # Save best-match comparison (now correctly inside the loop)
+        if result and result.get("all_ranked"):
+            cand = result["all_ranked"][0]
+            if cand.get("thumb_url"):
+                top_for_render = {
+                    "mapillary_id": cand["mapillary_id"],
+                    "thumb_url":    cand["thumb_url"],
+                    "pred_lat":     cand["lat"],
+                    "pred_lon":     cand["lon"],
+                }
+                comp = save_comparison(
+                    photo=result["photo"],
+                    top=top_for_render,
+                    out_dir=Path(out_csv).parent / "comparisons",
+                )
+                if comp:
+                    inl = cand.get("inliers", "?")
+                    ratio = cand.get("inlier_ratio") or 0
+                    print(f"  Comparison ({inl} inliers, ratio={ratio:.2f}) → {comp}")
 
-        rows.append(_to_row(photo, result))
-    
-    _write_csv(rows, out_path)
-    _print_summary(rows)
+        rows.append(to_row(photo, result))
 
-def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
+    write_csv(rows, out_path)
+    print_summary(rows)
+
+def save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
     """Side-by-side comparison JPEG,  prints what it's doing at each step."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont
@@ -481,16 +390,14 @@ def _save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
         traceback.print_exc()
         return None
 
-_CSV_FIELDS = [
+CSV_FIELDS = [
     "photo_id", "source_dataset", "title", "vision_label",
     "flickr_lat", "flickr_lon",
     "pred_lat", "pred_lon", "mapillary_id",
-    "similarity", "dino_score", "siglip_score",
-    "final_score", "cluster_score", "neighbors",
-    "distance_km", "center_source", "status",
+    "similarity","final_score", "distance_km", "status",
 ]
 
-def _to_row(photo: dict, result: Optional[dict]) -> dict:
+def to_row(photo: dict, result: Optional[dict]) -> dict:
     base = {
         "photo_id":       photo["photo_id"],
         "source_dataset": photo["source_dataset"],
@@ -498,9 +405,10 @@ def _to_row(photo: dict, result: Optional[dict]) -> dict:
         "vision_label":   photo["vision_label"],
         "flickr_lat":     photo["latitude"],
         "flickr_lon":     photo["longitude"],
+        "status": "ok"
     }
     if result is None:
-        return {**base, **{k: None for k in _CSV_FIELDS if k not in base},
+        return {**base, **{k: None for k in CSV_FIELDS if k not in base},
                 "status": "no_result"}
 
     p = result["photo"]
@@ -511,26 +419,19 @@ def _to_row(photo: dict, result: Optional[dict]) -> dict:
         "pred_lon":      t["pred_lon"],
         "mapillary_id":  t["mapillary_id"],
         "similarity":    t["similarity"],
-        "dino_score":    t.get("dino_score"),
-        "siglip_score":  t.get("siglip_score"),
-        "final_score":   t["final_score"],
-        "cluster_score": t["cluster_score"],
-        "neighbors":     t["neighbors"],
         "distance_km":   t["distance_km"],
-        "center_source": p["center_source"],
-        "status":        "ok",
     }
 
 
-def _write_csv(rows: list[dict], path: Path) -> None:
+def write_csv(rows: list[dict], path: Path) -> None:
     with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+        writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
     print(f"\nResults saved → {path}")
 
 
-def _print_summary(rows: list[dict]) -> None:
+def print_summary(rows: list[dict]) -> None:
     ok  = [r for r in rows if r["status"] == "ok" and r["distance_km"] is not None]
     sep = "=" * 62
     print(f"\n{sep}")
@@ -543,8 +444,6 @@ def _print_summary(rows: list[dict]) -> None:
     median_d = dists[len(dists) // 2]
     u500     = sum(1 for d in dists if d < 0.5)
     u1km     = sum(1 for d in dists if d < 1.0)
-    refined  = sum(1 for r in rows
-                   if r.get("center_source") in ("title", "description"))
 
     print(f"Successful       : {len(ok)}/{len(rows)}")
     print(f"Mean distance    : {mean_d:.3f} km")
@@ -564,39 +463,9 @@ def _print_summary(rows: list[dict]) -> None:
 
 # print helpers 
 
-def _print_header(
-    photo: dict,
-    radius: float,
-    dist_weight: float,
-    dual: bool,
-    alpha: float,
-) -> None:
-    encoder_str = (
-        f"DINOv2+SigLIP  (α={alpha})"
-        if dual else
-        f"single encoder"
-    )
-    sep = "─" * 62
-    print(f"\n{sep}")
-    print(f"  Photo    : {photo['photo_id']}")
-    print(f"  Dataset  : {photo['source_dataset']}")
-    print(f"  Title    : {photo['title'][:72]}")
-    if photo.get("description"):
-        print(f"  Desc     : {photo['description'][:72]}")
-    print(f"  GPS      : {photo['latitude']:.5f}, {photo['longitude']:.5f}")
-    print(f"  Vision   : {photo['vision_label']}  ({photo.get('vision_reason', '')})")
-    print(f"  Radius   : {radius} km  |  dist_weight={dist_weight}")
-    print(f"  Encoder  : {encoder_str}")
-
-
-def _print_result(
-    pred_lat: float,
-    pred_lon: float,
+def print_result(
     distance_km: float,
     top: dict,
-    center_src: str,
-    archive_lat: float,
-    archive_lon: float,
 ) -> None:
     mapillary_img = f"https://www.mapillary.com/app/?image_key={top['mapillary_id']}"
     mapillary_map = (
@@ -611,28 +480,22 @@ def _print_result(
             f"inliers={top['inliers']}/{top.get('match_total', '?')} "
             f"(ratio={top.get('inlier_ratio', 0):.2f})"
         )
-        confident = top["inliers"] >= 15   # ≥15 geometric inliers = strong match
-    else:
-        match_str = f"similarity={top['similarity']:.4f}"
-        confident = top["similarity"] >= MIN_CONFIDENCE
-
-    flag = "✓" if confident else "⚠ LOW CONFIDENCE —"
+    confident = top["inliers"] >= 15   # ≥15 geometric inliers = strong match
+    flag = "✓" if confident else "⚠ LOW CONFIDENCE"
 
     print(f"\n  {flag} Best match")
     print(f"    Mapillary ID : {top['mapillary_id']}")
     print(f"    Coordinates  : {top['lat']:.6f}, {top['lon']:.6f}")
     print(f"    Distance     : {distance_km:.3f} km from archive GPS")
     print(f"    Match        : {match_str}")
-    print(f"    Center src   : {center_src}")
-    print(f"")
-    print(f"  Open in Mapillary ──────────────────────────────────")
+    print(f"  Open in Mapillary")
     print(f"    Street-level image : {mapillary_img}")
     print(f"    Location on map    : {mapillary_map}")
 
 
 # CLI 
 
-def _parse_args() -> argparse.Namespace:
+def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
             "Geolocate historical archive photos from flickr_clusters.csv "
@@ -656,29 +519,14 @@ def _parse_args() -> argparse.Namespace:
                    help="Substring match on title column (case-insensitive)")
     p.add_argument("--radius_km",      type=float, default=None,
                    help="Override adaptive search radius (km)")
-    p.add_argument("--mapillary_limit",type=int,   default=25)
+    p.add_argument("--mapillary_limit",type=int,   default=50)
     p.add_argument("--top_k",          type=int,   default=5)
-    p.add_argument("--matcher",        default="loftr",
-                   choices=["loftr", "siglip", "dual"],
-                   help=(
-                       "Visual matching method. "
-                       "loftr  = LoFTR feature matching + RANSAC (default, correct for building ID). "
-                       "siglip = SigLIP global embedding cosine similarity (fast, less accurate). "
-                       "dual   = DINOv2 + SigLIP fusion (legacy)."
-                   ))
-    p.add_argument("--alpha",          type=float, default=DEFAULT_ALPHA,
-                   help="DINOv2 weight in the fused similarity (only for --matcher dual)")
     p.add_argument("--seed",           type=int,   default=None)
     return p.parse_args()
 
 
 if __name__ == "__main__":
-    args = _parse_args()
-
-    use_dual   = args.matcher == "dual"
-    single_enc = (
-        EncoderModel.SIGLIP
-    )
+    args = parse_args()
 
     batch_geolocate(
         csv_path=args.csv,
@@ -691,9 +539,5 @@ if __name__ == "__main__":
         radius_km=args.radius_km,
         mapillary_limit=args.mapillary_limit,
         top_k=args.top_k,
-        use_dual_encoder=use_dual,
-        alpha=args.alpha,
-        single_encoder=single_enc,
-        matcher=args.matcher,
         seed=args.seed,
     )

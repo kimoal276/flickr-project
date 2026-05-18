@@ -59,19 +59,19 @@ import numpy as np
 import requests
 import torch
 from PIL import Image
-
+from .geo_utils import load_image
 
 # Lazy model loader 
 
 _matcher: KF.LoFTR | None = None
 _device:  torch.device  | None = None
-_load_failed: bool = False                     # sticky flag — don't retry on failure
+load_failed: bool = False                     # sticky flag — don't retry on failure
 
 _LOFTR_URL  = "http://cmp.felk.cvut.cz/~mishkdmy/models/loftr_outdoor.ckpt"
 _LOFTR_NAME = "loftr_outdoor.ckpt"
 
 
-def _ensure_checkpoint() -> Path:
+def ensure_checkpoint() -> Path:
     """
     Pre-download the LoFTR checkpoint into torch's hub cache, bypassing SSL
     verification.  Works around Windows Python + Czech university cert chain
@@ -107,23 +107,23 @@ def _ensure_checkpoint() -> Path:
     return ckpt
 
 
-def _load_matcher() -> tuple[KF.LoFTR, torch.device]:
+def load_matcher() -> tuple[KF.LoFTR, torch.device]:
     """Lazy-load LoFTR outdoor weights.  Raises on persistent failure."""
-    global _matcher, _device, _load_failed
+    global _matcher, _device, load_failed
 
-    if _load_failed:
+    if load_failed:
         raise RuntimeError(
             "LoFTR model failed to load earlier in this session — not retrying."
         )
 
     if _matcher is None:
         try:
-            _ensure_checkpoint()          # pre-download if missing
+            ensure_checkpoint()          # pre-download if missing
             _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             print(f"  Loading LoFTR (outdoor) on {_device} …")
             _matcher = KF.LoFTR(pretrained="outdoor").eval().to(_device)
         except Exception:
-            _load_failed = True           # don't retry on every candidate
+            load_failed = True           # don't retry on every candidate
             raise
 
     return _matcher, _device
@@ -131,17 +131,7 @@ def _load_matcher() -> tuple[KF.LoFTR, torch.device]:
 
 # Image I/O 
 
-def _load_image(image_or_url: Union[str, Image.Image], timeout: int = 20) -> Image.Image:
-    if isinstance(image_or_url, str):
-        resp = requests.get(image_or_url, timeout=timeout)
-        resp.raise_for_status()
-        return Image.open(BytesIO(resp.content)).convert("RGB")
-    if isinstance(image_or_url, Image.Image):
-        return image_or_url.convert("RGB")
-    raise TypeError(f"Expected URL string or PIL Image, got {type(image_or_url)}")
-
-
-def _to_gray_tensor(img: Image.Image, max_size: int, device: torch.device) -> torch.Tensor:
+def to_gray_tensor(img: Image.Image, max_size: int, device: torch.device) -> torch.Tensor:
     """Convert PIL image to LoFTR-compatible [1, 1, H, W] grayscale tensor."""
     gray = img.convert("L")
     w, h = gray.size
@@ -184,13 +174,13 @@ def match_buildings(
       "inlier_ratio": float,   # inliers / total
     }
     """
-    matcher, device = _load_matcher()
+    matcher, device = load_matcher()
 
-    img_a = _load_image(image_a)
-    img_b = _load_image(image_b)
+    img_a = load_image(image_a)
+    img_b = load_image(image_b)
 
-    t_a = _to_gray_tensor(img_a, max_size, device)
-    t_b = _to_gray_tensor(img_b, max_size, device)
+    t_a = to_gray_tensor(img_a, max_size, device)
+    t_b = to_gray_tensor(img_b, max_size, device)
 
     with torch.no_grad():
         out = matcher({"image0": t_a, "image1": t_b})
