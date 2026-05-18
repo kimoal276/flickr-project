@@ -43,7 +43,7 @@ def _get_token() -> str:
 def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     token = _get_token()
     TILE_SIZE = 0.005
-    PER_TILE  = 25                       # was effectively 10
+    PER_TILE  = 25                       
     seen, candidates = set(), []
 
     lat = min_lat
@@ -89,7 +89,7 @@ def rank_candidates_loftr(
     archive_image: Union[str, Image.Image],
     candidates: list[dict],
     min_inliers: int = 8,
-    prefilter_top_k: int = 50,
+    prefilter_top_k: int = 50,    # Can determine whether siglip is used (if k=mapillary_limit only loftr runs)
 ) -> list[dict]:
     """
     Two-stage ranking:

@@ -26,6 +26,8 @@ from transformers import AutoModel, AutoProcessor
 from .geo_utils import load_image
 
 SIGLIP_NAME = "google/siglip-base-patch16-224"
+siglip_processor = None
+siglip_model     = None
 
 
 def load_siglip():

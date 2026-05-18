@@ -260,7 +260,7 @@ def batch_geolocate(
     title_filter: Optional[str] = None,
     photo_id: Optional[str] = None,
     radius_km: Optional[float] = None,
-    mapillary_limit: int = 50,
+    mapillary_limit: int = 50,               # max number of mapillary images fetched
     top_k: int = 5,
     seed: Optional[int] = None,
 ) -> None:
@@ -519,7 +519,7 @@ def parse_args() -> argparse.Namespace:
                    help="Substring match on title column (case-insensitive)")
     p.add_argument("--radius_km",      type=float, default=None,
                    help="Override adaptive search radius (km)")
-    p.add_argument("--mapillary_limit",type=int,   default=50)
+    p.add_argument("--mapillary_limit",type=int,   default=50) 
     p.add_argument("--top_k",          type=int,   default=5)
     p.add_argument("--seed",           type=int,   default=None)
     return p.parse_args()
