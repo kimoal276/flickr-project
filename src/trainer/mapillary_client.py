@@ -43,6 +43,8 @@ class MapillaryPicture:
     id: int
     lat: float
     lon: float
+    compass_angle: int
+    captured_at: int
     pic_url: str
 
 @dataclass
@@ -76,7 +78,7 @@ def create_sampler(longitude: float, latitude: float, st_km: float = 0.05)-> Opt
     deg_lon = 5 * st_km / (111.0 * math.cos(math.radians(latitude)))
     params = {
         "access_token": token,
-        "fields": "id,geometry,thumb_1024_url,captured_at",
+        "fields": "id,geometry,captured_at,compass_angle,thumb_1024_url",
         "bbox": (
             f"{longitude - deg_lon},{latitude - deg_lat},"
             f"{longitude + deg_lon},{latitude + deg_lat}"
@@ -92,6 +94,8 @@ def create_sampler(longitude: float, latitude: float, st_km: float = 0.05)-> Opt
                 id=item.get("id"),
                 lat=item.get("geometry", {}).get("coordinates", [None, None])[1],
                 lon=item.get("geometry", {}).get("coordinates", [None, None])[0],
+                captured_at=item.get("captured_at"),
+                compass_angle=item.get("compass_angle"),
                 pic_url=item.get("thumb_1024_url"),
             )
             for item in data
