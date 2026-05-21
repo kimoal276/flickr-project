@@ -9,19 +9,14 @@ Public API
 sample_candidate
 """
 
-from __future__ import annotations
-
 import os
-from typing import Optional, Union
 
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from PIL import Image
 from dataclasses import dataclass
 import math
 import random
-
 
 from .encoder import (
     encode,
@@ -58,55 +53,57 @@ class MapillarySampler:
     st_km: float = 0.05
 
     @classmethod
-    def create(cls, longitude: float, latitude: float, st_km: float = 0.05)-> Optional[MapillarySampler]:
-        """creates a sampler: """
-        token = _get_token()
-        deg_lat = 5 * st_km / 111.0
-        deg_lon = 5 * st_km / (111.0 * math.cos(math.radians(latitude)))
-        params = {
-            "access_token": token,
-            "fields": "id,geometry,thumb_1024_url,captured_at",
-            "bbox": (
-                f"{longitude - deg_lon},{latitude - deg_lat},"
-                f"{longitude + deg_lon},{latitude + deg_lat}"
-            ),
-            "limit": 1000,
-        }
-        try:
-            resp = requests.get(f"{MAPILLARY_BASE}/images", params=params, timeout=60)
-            resp.raise_for_status()
-            data = resp.json().get("data", [])
-            candidates = [
-                MapillaryPicture(
-                    id=item.get("id"),
-                    lat=item.get("geometry", {}).get("coordinates", [None, None])[1],
-                    lon=item.get("geometry", {}).get("coordinates", [None, None])[0],
-                    pic_url=item.get("thumb_1024_url"),
-                )
-                for item in data
+    def sample_candidates(self) -> Optional[MapillaryPicture]:
+            """
+            Return one candidate picture, drawn at random with a 2-D Gaussian
+            weighting centred on (self.lat, self.lon).
+            """
+            if not self.candidates:
+                return None
+
+            # Weight each candidate by the unnormalised Gaussian PDF at its location.
+            # random.choices normalises internally, so we don't need to divide.
+            weights = [
+                math.exp(-0.5 * (haversine_km(self.lat, self.lon, c.lat, c.lon) / self.st_km) ** 2)
+                for c in self.candidates
             ]
-            return cls(longitude, latitude, candidates)
-        except requests.RequestException:
-            return None
+            return random.choices(self.candidates, weights=weights, k=1)[0]
 
-def sample_candidates(self, st_km: Optional[float] = None) -> Optional[MapillaryPicture]:
-        """
-        Return one candidate picture, drawn at random with a 2-D Gaussian
-        weighting centred on (self.lat, self.lon).
-        """
-        if not self.candidates:
-            return None
-
-        sigma = st_km if st_km is not None else self.st_km
-
-        # Weight each candidate by the unnormalised Gaussian PDF at its location.
-        # random.choices normalises internally, so we don't need to divide.
-        weights = [
-            math.exp(-0.5 * (haversine_km(self.lat, self.lon, c.lat, c.lon) / sigma) ** 2)
-            for c in self.candidates
+def create_sampler(longitude: float, latitude: float, st_km: float = 0.05)-> Optional[MapillarySampler]:
+    """creates a Sampler"""
+    token = _get_token()
+    deg_lat = 5 * st_km / 111.0
+    deg_lon = 5 * st_km / (111.0 * math.cos(math.radians(latitude)))
+    params = {
+        "access_token": token,
+        "fields": "id,geometry,thumb_1024_url,captured_at",
+        "bbox": (
+            f"{longitude - deg_lon},{latitude - deg_lat},"
+            f"{longitude + deg_lon},{latitude + deg_lat}"
+        ),
+        "limit": 1000,
+    }
+    try:
+        resp = requests.get(f"{MAPILLARY_BASE}/images", params=params, timeout=60)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        candidates = [
+            MapillaryPicture(
+                id=item.get("id"),
+                lat=item.get("geometry", {}).get("coordinates", [None, None])[1],
+                lon=item.get("geometry", {}).get("coordinates", [None, None])[0],
+                pic_url=item.get("thumb_1024_url"),
+            )
+            for item in data
         ]
+        if len(candidates) > 0:
+            return MapillarySampler(longitude, latitude, candidates, st_km)
+    except requests.RequestException:
+        return None
+    return None
+    
 
-        return random.choices(self.candidates, weights=weights, k=1)[0]
+
 """""
 # Fetching 
 def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
@@ -153,113 +150,3 @@ def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     candidates.sort(key=lambda c: (c["lat"]-cx)**2 + (c["lon"]-cy)**2)
     return candidates[:limit]
 """""
-# LoFTR-based ranking (PROPER building identification) 
-def rank_candidates_loftr(
-    archive_image: Union[str, Image.Image],
-    candidates: list[dict],
-    min_inliers: int = 8,
-    prefilter_top_k: int = 50,    # Can determine whether siglip is used (if k=mapillary_limit only loftr runs)
-) -> list[dict]:
-    """
-    Two-stage ranking:
-      1. SigLIP cosine similarity on all candidates  (fast, ~ms per image)
-      2. LoFTR + RANSAC on the top-`prefilter_top_k`  (slow but accurate)
-    Set prefilter_top_k=None to disable the filter and run LoFTR on everything.
-    """
-    from .building_matcher import load_matcher
-    try:
-        load_matcher()
-    except Exception as exc:
-        print(f"  [fatal] Could not load LoFTR model: {exc}")
-        raise
-
-    # Pre-load archive ONCE
-    if isinstance(archive_image, str):
-        from io import BytesIO
-        import time as _t
-        archive_pil = None
-        for attempt in range(3):
-            try:
-                resp = requests.get(archive_image, timeout=30)
-                resp.raise_for_status()
-                archive_pil = Image.open(BytesIO(resp.content)).convert("RGB")
-                break
-            except Exception as exc:
-                wait = 2 ** attempt
-                print(f"  [archive load attempt {attempt+1}/3 failed: {exc}] "
-                      f"retrying in {wait}s …")
-                _t.sleep(wait)
-        if archive_pil is None:
-            print(f"  [fatal] Could not download archive image")
-            return []
-    else:
-        archive_pil = archive_image
-
-    # STAGE 1: SigLIP pre-filter     
-    if prefilter_top_k is not None and len(candidates) > prefilter_top_k:
-        print(f"  Stage 1: SigLIP pre-filter on {len(candidates)} candidates …")
-        archive_vec = encode(archive_pil, preprocess_archive=True)
-
-        prefiltered = []
-        for idx, cand in enumerate(candidates):
-            cand_vec = safe_encode(cand["thumb_url"],
-                                    preprocess_archive=True)
-            if cand_vec is None:
-                continue
-            sim = similarity(archive_vec, cand_vec)
-            prefiltered.append({**cand, "siglip": sim})
-
-        prefiltered.sort(key=lambda x: x["siglip"], reverse=True)
-        candidates = prefiltered[:prefilter_top_k]
-        print(f"  → keeping top {len(candidates)} for LoFTR  "
-              f"(SigLIP scores: {candidates[0]['siglip']:.3f} … "
-              f"{candidates[-1]['siglip']:.3f})")
-
-    # STAGE 2: LoFTR + RANSAC on the survivors     
-    scored = []
-    for idx, cand in enumerate(candidates):
-        try:
-            result = match_buildings(archive_pil, cand["thumb_url"])
-        except Exception as exc:
-            print(f"  [match error] candidate {cand['mapillary_id']}: {exc}")
-            continue
-
-        n_in   = result["inliers"]
-        total  = result["total"]
-        ratio  = result["inlier_ratio"]
-        is_match = n_in >= min_inliers
-
-        scored.append({
-            **cand,
-            "similarity":   float(n_in),
-            "inliers":      n_in,
-            "match_total":  total,
-            "inlier_ratio": ratio,
-            "distance_km":  None,
-            "final_score":  float(n_in),
-            "is_match":     is_match,
-        })
-
-        marker = "✓" if is_match else "·"
-        print(f"  [{idx+1:2d}/{len(candidates)}] {marker} "
-              f"inliers={n_in:3d}/{total:<3d} (ratio={ratio:.2f})  "
-              f"id={cand['mapillary_id']}")
-
-    scored.sort(
-        key=lambda x: (x["inliers"], x["inlier_ratio"], x["mapillary_id"]),
-        reverse=True,
-    )
-    
-    return scored
-
-# Internals 
-
-def safe_encode(
-    url: str,
-    preprocess_archive: bool,
-) -> Optional[np.ndarray]:
-    try:
-        return encode(url, preprocess_archive=preprocess_archive)
-    except Exception as exc:
-        print(f"  [encode error] {url}: {exc}")
-        return None
