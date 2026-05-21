@@ -6,7 +6,7 @@ historical archive photo using visual feature matching.
 
 Public API
 
-fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit) → list[dict]
+sample_candidate
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ import numpy as np
 import requests
 from dotenv import load_dotenv
 from PIL import Image
+from dataclasses import dataclass
+
 
 from .encoder import (
     encode,
@@ -25,11 +27,9 @@ from .encoder import (
 )
 from .building_matcher import match_buildings
 from .geo_utils import bbox_from_center, haversine_km
+from typing import Optional
 
 load_dotenv()
-
-MAPILLARY_BASE = "https://graph.mapillary.com"
-
 
 # Auth 
 def _get_token() -> str:
@@ -37,11 +37,54 @@ def _get_token() -> str:
     if not token:
         raise ValueError("MAPILLARY_ACCESS_TOKEN must be set in .env")
     return token
+from dataclasses import dataclass
+import requests
 
-def sample_candidate(latitude: float, longitude: float, std_km=0.05)-> Image.Image:
-    """returns a random mapillary picture 
-    sampled from a gaussian distribution at (latitude,logitude) +- std_km"""
-    pass
+MAPILLARY_BASE = "https://graph.mapillary.com"
+
+@dataclass
+class MapillaryPicture:
+    id: int
+    lat: float
+    lon: float
+    pic_url: str
+
+@dataclass
+class MapillarySampler:
+    lon: float
+    lat: float
+    candidates: list
+
+    @classmethod
+    def create(cls, longitude: float, latitude: float, st_km: float = 0.05)-> Optional[MapillarySampler]:
+        """creates a sampler: """
+        token = _get_token()
+        params = {
+            "access_token": token,
+            "fields": "id,geometry,thumb_1024_url,captured_at",
+            "bbox": f"{longitude - 5*st_km},{latitude - 5*st_km},{longitude + 5*st_km},{latitude + 5*st_km}",
+            "limit": 1000,
+        }
+        try:
+            resp = requests.get(f"{MAPILLARY_BASE}/images", params=params, timeout=60)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            candidates = [
+                MapillaryPicture(
+                    id=item.get("id"),
+                    lat=item.get("geometry", {}).get("coordinates", [None, None])[1],
+                    lon=item.get("geometry", {}).get("coordinates", [None, None])[0],
+                    pic_url=item.get("thumb_1024_url"),
+                )
+                for item in data
+            ]
+            return cls(longitude, latitude, candidates)
+        except requests.RequestException:
+            return None
+
+        @classmethod
+        def sample():
+            """returns a MapillayPicture sampled from the object"""
 
 # Fetching 
 def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
