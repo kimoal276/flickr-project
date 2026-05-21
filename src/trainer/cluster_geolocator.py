@@ -1,25 +1,24 @@
-from __future__ import annotations
-
 import argparse
 import csv
 import random
 from pathlib import Path
 from typing import Optional
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
+import requests
+import traceback
 
 from dotenv import load_dotenv
 
 from .geo_utils import bbox_from_center, haversine_km, parse_float
-from .mapillary_client import (
-    fetch_candidates,
-    rank_candidates_loftr,
-)
+
 
 load_dotenv()
 
 SEARCH_RADIUS_KM = 0.5
 
 # CSV loading 
-
+"""
 def load_photos(
     csv_path: str = "flickr_clusters.csv",
     vision_filter: Optional[str] = None,
@@ -29,7 +28,7 @@ def load_photos(
     num_photos: int = 10,
     seed: Optional[int] = None,
 ) -> list[dict]:
-    """
+    
     Load and optionally filter photos from flickr_clusters.csv.
 
     Parameters
@@ -46,7 +45,7 @@ def load_photos(
     List of photo dicts with keys:
         photo_id, title, description, date_taken, latitude, longitude,
         image_url, tags, source_dataset, vision_label, vision_reason
-    """
+    
     photos: list[dict] = []
 
     with open(csv_path, encoding="utf-8") as fh:
@@ -110,11 +109,10 @@ def load_photos(
 
 def geolocate(
     photo: dict,
-    radius_km: Optional[float] = None,
     mapillary_limit: int = 25,
     top_k: int = 5,
 ) -> Optional[dict]:
-    """
+    
     Geolocate a single archive photo against Mapillary street-level imagery.
 
     Parameters
@@ -143,10 +141,9 @@ def geolocate(
       "all_ranked": [ { mapillary_id, lat, lon, similarity,
                          distance_km, final_score, cluster_score }, ... ]
     }
-    """
+    
     photo_id    = photo["photo_id"]
     title       = photo["title"]
-    description = photo.get("description", "")
     vision      = photo["vision_label"]
     gps_lat     = photo["latitude"]
     gps_lon     = photo["longitude"]
@@ -267,15 +264,13 @@ def batch_geolocate(
     out_path = Path(out_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    photos = load_photos(
-        csv_path=csv_path,
+    photos = load_photos(csv_path=csv_path,
         vision_filter=vision_filter,
         institution_filter=institution_filter,
         title_filter=title_filter,
         photo_id=photo_id,
         num_photos=num_photos,
-        seed=seed,
-    )
+        seed=seed)
     if not photos:
         print("No eligible photos found — check your filters.")
         return
@@ -319,14 +314,9 @@ def batch_geolocate(
 
     write_csv(rows, out_path)
     print_summary(rows)
-
+"""
 def save_comparison(photo: dict, top: dict, out_dir: Path) -> Optional[Path]:
     """Side-by-side comparison JPEG,  prints what it's doing at each step."""
-    from io import BytesIO
-    from PIL import Image, ImageDraw, ImageFont
-    import requests
-    import traceback
-
 
     try:
         archive_resp = requests.get(photo["image_url"], timeout=30)
@@ -410,8 +400,7 @@ def to_row(photo: dict, result: Optional[dict]) -> dict:
     if result is None:
         return {**base, **{k: None for k in CSV_FIELDS if k not in base},
                 "status": "no_result"}
-
-    p = result["photo"]
+    
     t = result["top_match"]
     return {
         **base,
@@ -438,29 +427,6 @@ def print_summary(rows: list[dict]) -> None:
     if not ok:
         print("No successful geolocation results.")
         return
-
-    dists    = sorted(r["distance_km"] for r in ok)
-    mean_d   = sum(dists) / len(dists)
-    median_d = dists[len(dists) // 2]
-    u500     = sum(1 for d in dists if d < 0.5)
-    u1km     = sum(1 for d in dists if d < 1.0)
-
-    print(f"Successful       : {len(ok)}/{len(rows)}")
-    print(f"Mean distance    : {mean_d:.3f} km")
-    print(f"Median distance  : {median_d:.3f} km")
-    print(f"< 500 m          : {u500}/{len(ok)}  ({100 * u500 // len(ok)}%)")
-    print(f"< 1 km           : {u1km}/{len(ok)}  ({100 * u1km // len(ok)}%)")
-
-    bld = [r for r in ok if r["vision_label"] == "YES"]
-    non = [r for r in ok if r["vision_label"] != "YES"]
-    if bld:
-        print(f"Building mean    : "
-              f"{sum(r['distance_km'] for r in bld)/len(bld):.3f} km  (n={len(bld)})")
-    if non:
-        print(f"Non-bld mean     : "
-              f"{sum(r['distance_km'] for r in non)/len(non):.3f} km  (n={len(non)})")
-
-
 # print helpers 
 
 def print_result(

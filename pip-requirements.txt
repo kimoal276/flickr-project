@@ -1,21 +1,13 @@
-psycopg2
-sqlalchemy
 python-dotenv
 flickrapi
-pandas
-scikit-learn
+requests
 numpy
+pandas
+Pillow
+torch
 torchvision
 transformers
-Pillow
-requests
-torch
 sentencepiece
-ipykernel
-jupyter
-plotly
-pgvector
+kornia
+opencv-python
 
-# streamlit
-# folium
-# streamlit-folium

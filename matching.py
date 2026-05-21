@@ -5,6 +5,7 @@ from .src.trainer.mapillary_client import MapillaryPicture, create_sampler
 from .src.trainer.cluster_geolocator import load_picture
 from ??? import compute_loftr_inliers
 from ??? import compute_ransac_inliers
+
 """
 def load_picture(url:str)->Optional[Pil.Image]
 

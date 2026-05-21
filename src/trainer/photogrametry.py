@@ -1,10 +1,18 @@
-from typing import Optional, Union
-from typing import Optional, Union
-
+from typing import Optional
+import requests
+from PIL import Image
+import numpy as np
+from .encoder import (
+    encode,
+    similarity,
+)
+from .building_matcher import (
+    match_buildings,load_matcher
+)
 
 # LoFTR-based ranking (PROPER building identification) 
 def rank_candidates_loftr(
-    archive_image: Union[str, Image.Image],
+    archive_image: Image.Image,
     candidates: list[dict],
     min_inliers: int = 8,
     prefilter_top_k: int = 50,    # Can determine whether siglip is used (if k=mapillary_limit only loftr runs)
@@ -15,7 +23,6 @@ def rank_candidates_loftr(
       2. LoFTR + RANSAC on the top-`prefilter_top_k`  (slow but accurate)
     Set prefilter_top_k=None to disable the filter and run LoFTR on everything.
     """
-    from .building_matcher import load_matcher
     try:
         load_matcher()
     except Exception as exc:
@@ -44,7 +51,7 @@ def rank_candidates_loftr(
     else:
         archive_pil = archive_image
 
-    # STAGE 1: SigLIP pre-filter     
+# STAGE 1: SigLIP pre-filter     
     if prefilter_top_k is not None and len(candidates) > prefilter_top_k:
         print(f"  Stage 1: SigLIP pre-filter on {len(candidates)} candidates …")
         archive_vec = encode(archive_pil, preprocess_archive=True)
@@ -60,12 +67,16 @@ def rank_candidates_loftr(
 
         prefiltered.sort(key=lambda x: x["siglip"], reverse=True)
         candidates = prefiltered[:prefilter_top_k]
-        print(f"  → keeping top {len(candidates)} for LoFTR  "
+        """print(f"  → keeping top {len(candidates)} for LoFTR  "
               f"(SigLIP scores: {candidates[0]['siglip']:.3f} … "
-              f"{candidates[-1]['siglip']:.3f})")
+              f"{candidates[-1]['siglip']:.3f})")"""""
 
-    # STAGE 2: LoFTR + RANSAC on the survivors     
+    # STAGE 2: LoFTR + RANSAC on the survivors
+    prefiltered = []
+    prefiltered.sort(key=lambda x: x["siglip"], reverse=True)
+    candidates = prefiltered[:prefilter_top_k]     
     scored = []
+    
     for idx, cand in enumerate(candidates):
         try:
             result = match_buildings(archive_pil, cand["thumb_url"])

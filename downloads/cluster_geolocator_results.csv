@@ -1,2 +1,2 @@
-photo_id,source_dataset,title,vision_label,flickr_lat,flickr_lon,pred_lat,pred_lon,mapillary_id,similarity,dino_score,siglip_score,final_score,cluster_score,neighbors,distance_km,center_source,status
-48990744348,Community Archives of Belleville  Hastings County,2015-11-1994-018,YES,44.160857,-77.398445,44.15680899,-77.39112738,2616190602011380,5.0,,,5.0,5.0,0,0.7371325645358886,gps,ok
+photo_id,source_dataset,title,vision_label,flickr_lat,flickr_lon,pred_lat,pred_lon,mapillary_id,similarity,final_score,distance_km,status
+5807567105,bibliothequedetoulouse,"Vague au casino, Nice, avril 1899",YES,43.695415,7.265245,,,,,,,no_result

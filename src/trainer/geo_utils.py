@@ -10,7 +10,6 @@ bbox_from_center    Bounding box around a (lat, lon) centre with a given radius.
 parse_float         Safe float parser that maps "0" / "" / None → None.
 """
 
-from __future__ import annotations
 import math
 from typing import Optional
 from io import BytesIO
