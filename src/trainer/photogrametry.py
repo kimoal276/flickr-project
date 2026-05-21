@@ -1,6 +1,7 @@
 from typing import Optional
 import requests
 from PIL import Image
+from typing import Optional
 import numpy as np
 from .encoder import (
     encode,
