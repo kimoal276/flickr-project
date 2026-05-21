@@ -111,7 +111,7 @@ def load_photos(
 def geolocate(
     photo: dict,
     radius_km: Optional[float] = None,
-    mapillary_limit: int = 100,
+    mapillary_limit: int = 25,
     top_k: int = 5,
 ) -> Optional[dict]:
     """
@@ -197,7 +197,7 @@ def geolocate(
 
     top = ranked[0]
     # Reject if no real geometric match was found
-    MIN_INLIERS = 6
+    MIN_INLIERS = 10
     if top.get("inliers") is not None and top["inliers"] < MIN_INLIERS:
         print(f"  ✗ No confident match — best inlier count was {top['inliers']} "
           f"(Photo likely not in Mapillary coverage.")
@@ -260,7 +260,7 @@ def batch_geolocate(
     title_filter: Optional[str] = None,
     photo_id: Optional[str] = None,
     radius_km: Optional[float] = None,
-    mapillary_limit: int = 50,               # max number of mapillary images fetched
+    mapillary_limit: int = 25,               # max number of mapillary images fetched
     top_k: int = 5,
     seed: Optional[int] = None,
 ) -> None:
@@ -518,7 +518,7 @@ def parse_args() -> argparse.Namespace:
                    help="Substring match on title column (case-insensitive)")
     p.add_argument("--radius_km",      type=float, default=None,
                    help="Override adaptive search radius (km)")
-    p.add_argument("--mapillary_limit",type=int,   default=50) 
+    p.add_argument("--mapillary_limit",type=int,   default=25) 
     p.add_argument("--top_k",          type=int,   default=5)
     p.add_argument("--seed",           type=int,   default=None)
     return p.parse_args()

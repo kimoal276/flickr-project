@@ -202,7 +202,7 @@ def match_buildings(
         cv2.USAC_MAGSAC,
         ransacReprojThreshold=ransac_threshold,
         confidence=0.99,
-        maxIters=2_000,
+        maxIters=500,
     )
     n_inliers = int(inliers.sum()) if inliers is not None else 0
 

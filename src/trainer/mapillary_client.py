@@ -19,6 +19,8 @@ import requests
 from dotenv import load_dotenv
 from PIL import Image
 from dataclasses import dataclass
+import math
+import random
 
 
 from .encoder import (
@@ -27,7 +29,6 @@ from .encoder import (
 )
 from .building_matcher import match_buildings
 from .geo_utils import bbox_from_center, haversine_km
-from typing import Optional
 
 load_dotenv()
 
@@ -54,15 +55,21 @@ class MapillarySampler:
     lon: float
     lat: float
     candidates: list
+    st_km: float = 0.05
 
     @classmethod
     def create(cls, longitude: float, latitude: float, st_km: float = 0.05)-> Optional[MapillarySampler]:
         """creates a sampler: """
         token = _get_token()
+        deg_lat = 5 * st_km / 111.0
+        deg_lon = 5 * st_km / (111.0 * math.cos(math.radians(latitude)))
         params = {
             "access_token": token,
             "fields": "id,geometry,thumb_1024_url,captured_at",
-            "bbox": f"{longitude - 5*st_km},{latitude - 5*st_km},{longitude + 5*st_km},{latitude + 5*st_km}",
+            "bbox": (
+                f"{longitude - deg_lon},{latitude - deg_lat},"
+                f"{longitude + deg_lon},{latitude + deg_lat}"
+            ),
             "limit": 1000,
         }
         try:
@@ -82,10 +89,25 @@ class MapillarySampler:
         except requests.RequestException:
             return None
 
-        @classmethod
-        def sample():
-            """returns a MapillayPicture sampled from the object"""
+def sample_candidates(self, st_km: Optional[float] = None) -> Optional[MapillaryPicture]:
+        """
+        Return one candidate picture, drawn at random with a 2-D Gaussian
+        weighting centred on (self.lat, self.lon).
+        """
+        if not self.candidates:
+            return None
 
+        sigma = st_km if st_km is not None else self.st_km
+
+        # Weight each candidate by the unnormalised Gaussian PDF at its location.
+        # random.choices normalises internally, so we don't need to divide.
+        weights = [
+            math.exp(-0.5 * (haversine_km(self.lat, self.lon, c.lat, c.lon) / sigma) ** 2)
+            for c in self.candidates
+        ]
+
+        return random.choices(self.candidates, weights=weights, k=1)[0]
+"""""
 # Fetching 
 def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     token = _get_token()
@@ -130,7 +152,7 @@ def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
     cy = (min_lon + max_lon) / 2
     candidates.sort(key=lambda c: (c["lat"]-cx)**2 + (c["lon"]-cy)**2)
     return candidates[:limit]
-
+"""""
 # LoFTR-based ranking (PROPER building identification) 
 def rank_candidates_loftr(
     archive_image: Union[str, Image.Image],
