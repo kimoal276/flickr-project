@@ -180,7 +180,7 @@ def rank_candidates_loftr(
         key=lambda x: (x["inliers"], x["inlier_ratio"], x["mapillary_id"]),
         reverse=True,
     )
-    print(f"  [debug] LoFTR survivors: {[c['mapillary_id'] for c in candidates]}")
+    
     return scored
 
 # Internals 

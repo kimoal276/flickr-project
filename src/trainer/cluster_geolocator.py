@@ -500,9 +500,8 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Geolocate historical archive photos from flickr_clusters.csv "
             "against present-day Mapillary street-level imagery.\n\n"
-            "Visual matching uses a DINOv2 + SigLIP dual-encoder by default. "
-            "DINOv2 captures structural/geometric features robust to the "
-            "archive-to-street domain gap; SigLIP adds semantic context."
+            "Visual matching uses a SigLIP encoder by default. "
+            "SigLIP captures semantic context."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
