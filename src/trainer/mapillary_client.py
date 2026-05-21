@@ -38,6 +38,10 @@ def _get_token() -> str:
         raise ValueError("MAPILLARY_ACCESS_TOKEN must be set in .env")
     return token
 
+def sample_candidate(latitude: float, longitude: float, std_km=0.05)-> Image.Image:
+    """returns a random mapillary picture 
+    sampled from a gaussian distribution at (latitude,logitude) +- std_km"""
+    pass
 
 # Fetching 
 def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
