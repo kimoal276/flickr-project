@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import math
 import random
 from typing import Optional
+from collections import defaultdict
 from .geo_utils import haversine_km
 
 load_dotenv()
@@ -49,7 +50,6 @@ class MapillarySampler:
     candidates: list
     st_km: float = 0.05
 
-    @classmethod
     def sample_candidates(self) -> Optional[MapillaryPicture]:
             """
             Return one candidate picture, drawn at random with a 2-D Gaussian
@@ -100,8 +100,73 @@ def create_sampler(longitude: float, latitude: float, st_km: float = 0.05)-> Opt
     except requests.RequestException:
         return None
     return None
-    
 
+def smart_angle_candidates(longitude: float, latitude:float, TILE_SIDE_KM=0.1, BIN_SIZE=15):
+    """
+    Returns candidates sampled spatially and by viewing angle.
+
+    For each of the 9 surrounding tiles:
+    - fetch Mapillary pictures
+    - bin by compass angle (15° bins)
+    - sample 1 random picture per non-empty bin
+    """
+    token = _get_token()
+
+    deg_lat =  TILE_SIDE_KM / 111.0
+    deg_lon = TILE_SIDE_KM / (111.0 * math.cos(math.radians(latitude)))
+
+    tile_centers = [
+        (
+            longitude + deg_lon * lon_offset,
+            latitude + deg_lat * lat_offset,
+        )
+        for lon_offset, lat_offset in [
+            (-1, -1), (-1, 0), (-1, 1),
+            (0, -1),  (0, 0),  (0, 1),
+            (1, -1),  (1, 0),  (1, 1),
+        ]
+    ]
+    candidates = []
+    
+    for center_lon, center_lat in tile_centers:
+        params = {
+            "access_token": token,
+            "fields": "id,geometry,captured_at,compass_angle,thumb_1024_url",
+            "bbox": (
+                f"{center_lon - 0.5*deg_lon},{center_lat - 0.5*deg_lat},"
+                f"{center_lon + 0.5*deg_lon},{center_lat + 0.5*deg_lat}"
+            ),
+            "limit": 1000,
+        }
+        try:
+            resp = requests.get(f"{MAPILLARY_BASE}/images", params=params, timeout=60)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            tile_candidates = [
+                MapillaryPicture(
+                    id=item.get("id"),
+                    lat=item.get("geometry", {}).get("coordinates", [None, None])[1],
+                    lon=item.get("geometry", {}).get("coordinates", [None, None])[0],
+                    captured_at=item.get("captured_at"),
+                    compass_angle=item.get("compass_angle"),
+                    pic_url=item.get("thumb_1024_url"),
+                )
+                for item in data
+            ]
+            if not tile_candidates:
+                continue
+            angle_bins = defaultdict(list)
+            for candidate in tile_candidates:
+                angle = candidate.compass_angle % 360
+                bin_idx = int(angle // BIN_SIZE)
+                angle_bins[bin_idx].append(candidate)
+            for bin_candidates in angle_bins.values():
+                candidates.append(random.choice(bin_candidates))
+        except requests.RequestException:
+            continue
+    
+    return candidates
+    
 
 """""
 # Fetching 
