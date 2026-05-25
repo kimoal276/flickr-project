@@ -12,14 +12,10 @@ encode(image_or_url, model, preprocess_archive) → np.ndarray
 similarity(vec_a, vec_b) → float      
 """
 
-from __future__ import annotations
-
-from enum import Enum
 from io import BytesIO
 from typing import Union
 
 import numpy as np
-import requests
 import torch
 from PIL import Image, ImageFilter
 from transformers import AutoModel, AutoProcessor

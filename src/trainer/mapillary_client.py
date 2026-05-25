@@ -17,13 +17,8 @@ from dotenv import load_dotenv
 from dataclasses import dataclass
 import math
 import random
-
-from .encoder import (
-    encode,
-    similarity,
-)
-from .building_matcher import match_buildings
-from .geo_utils import bbox_from_center, haversine_km
+from typing import Optional
+from .geo_utils import haversine_km
 
 load_dotenv()
 
