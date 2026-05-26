@@ -108,16 +108,11 @@ def load_picture(url: str, timeout: int = 20) -> Optional[Image.Image]:
     
 
 def compute_loftr_matches(
-    img1: Image.Image,
-    img2: Image.Image,
+    t1,
+    t2,
+    matcher,
     confidence_threshold: float = 0.5,
-    max_size: int = 512,
 ) -> Tuple[np.ndarray, np.ndarray]:
-
-    matcher, device = load_matcher()
-
-    t1 = to_gray_tensor(img1, max_size, device)
-    t2 = to_gray_tensor(img2, max_size, device)
 
     with torch.no_grad():
         out = matcher({"image0": t1, "image1": t2})

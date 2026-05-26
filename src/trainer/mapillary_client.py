@@ -8,6 +8,7 @@ import math
 import random
 from typing import Optional
 from collections import defaultdict
+from collections import defaultdict
 from .geo_utils import haversine_km
 
 load_dotenv()
