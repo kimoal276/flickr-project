@@ -9,7 +9,7 @@ import numpy as np
 import requests
 import torch
 from PIL import Image
-from .geo_utils import load_image
+
 
 
 _matcher: KF.LoFTR | None = None
@@ -133,7 +133,7 @@ def compute_loftr_matches(
 def compute_ransac_inliers(
     kp0: np.ndarray,
     kp1: np.ndarray,
-    threshold: float = 3.0,
+    ransac_threshold: float = 3.0,
     confidence: float = 0.99,
     max_iterations: int = 500,
 ) -> int:
@@ -141,13 +141,11 @@ def compute_ransac_inliers(
     if len(kp0) < 8 or len(kp1) < 8:
         return 0
 
-    _, inliers = cv2.findHomography(
-        kp0, kp1,
-        cv2.USAC_MAGSAC,
-        ransacReprojThreshold=threshold,
-        confidence=confidence,
-        maxIters=max_iterations,
-    )
+    F, inliers = cv2.findFundamentalMat(
+    kp0, kp1,
+    cv2.USAC_MAGSAC,
+    ransacReprojThreshold=ransac_threshold,
+    confidence=confidence,
+    maxIters=max_iterations,
+)
     return int(inliers.sum()) if inliers is not None else 0
-
-
