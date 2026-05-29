@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Optional, Tuple
 from tqdm import tqdm
-from .src.trainer.mapillary_client import MapillaryPicture, create_sampler, smart_angle_candidates
+from .src.trainer.mapillary_client import MapillaryPicture, create_sampler, smart_angle_candidates, smart_monument_candidates
 from .src.trainer.building_matcher import (
     load_picture,
     load_matcher,
@@ -21,7 +21,7 @@ RANSAC_THRESHOLD = 3.0
 RANSAC_CONFIDENCE = 0.99
 RANSAC_MAX_ITERATIONS = 100
   
-def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, latitude: float)-> Tuple[Optional[MapillaryPicture], float]:
+def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, latitude: float)-> Tuple[int, Optional[MapillaryPicture], float]:
 
     matcher, device = load_matcher()
     flickr_tensor = to_gray_tensor(cache.get(img_url), MAX_TENSOR_SIZE, device)
@@ -30,7 +30,8 @@ def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, l
     # sampler = create_sampler(longitude=longitude, latitude=latitude, st_km=SAMPLING_RADIUS)
     # candidates = [sampler.sample_candidates() for i in range(SAMPLING_COUNT)]
     #new sampler:
-    candidates = smart_angle_candidates(longitude=longitude, latitude=latitude, TILE_SIDE_KM=TILE_SIDE_KM, BIN_SIZE=BIN_SIZE)
+    # candidates = smart_angle_candidates(longitude=longitude, latitude=latitude, TILE_SIDE_KM=TILE_SIDE_KM, BIN_SIZE=BIN_SIZE)
+    candidates = smart_monument_candidates(longitude=longitude, latitude=latitude)
 
     mapillary_pictures = cache.get_images([c.pic_url for c in candidates], download_missing=True, fast_cache=False, disk_save=False)
     valid_candidates = [ (to_gray_tensor(mapillary_pic, MAX_TENSOR_SIZE, device), candidate)
@@ -39,10 +40,14 @@ def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, l
     ]
 
     best_ransac_inlier_count = 0
+    best_loftr_inlier_count = 0
     best_candidate = None
-    for mapillary_tensor, candidate in tqdm(valid_candidates, total=SAMPLING_COUNT, desc='find best candidate'):
+    for mapillary_tensor, candidate in tqdm(valid_candidates, total=SAMPLING_COUNT, desc='find best candidate', disable=True):
         kp0, kp1 = compute_loftr_matches(flickr_tensor, mapillary_tensor, matcher, confidence_threshold=LOFTR_CONFIDENCE)
         loft_inlier_count = len(kp0)
+        if loft_inlier_count > best_loftr_inlier_count:
+            best_loftr_inlier_count = loft_inlier_count
+            best_candidate = candidate
         if loft_inlier_count > MIN_LOFTR_INLIER_COUNT:
             ransac_inlier_count = compute_ransac_inliers(kp0, kp1, RANSAC_THRESHOLD, RANSAC_CONFIDENCE, RANSAC_MAX_ITERATIONS)
             if ransac_inlier_count > best_ransac_inlier_count:
@@ -50,7 +55,9 @@ def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, l
                 best_candidate = candidate
 
     # return best_candidate, loft_inlier_count
-    return best_candidate, min((best_ransac_inlier_count+1) / 1000, 0.999999)
+    if best_loftr_inlier_count < MIN_LOFTR_INLIER_COUNT and best_candidate:
+        print(f"Max loftr inlier: {best_loftr_inlier_count} for pic: {img_url}. Candidate: {best_candidate.mapillary_pic_url}")
+    return len(candidates), best_candidate, min((best_ransac_inlier_count+1) / 1000, 0.999999)
 
 
 
@@ -60,13 +67,14 @@ def find_matches(df: pd.DataFrame, cache) -> pd.DataFrame:
     and store the match information in new dataframe columns.
     """
 
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Matching images"):
-        mapillary_pic, confidence = _best_matching_pair_with_confidence(
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Matching images", disable=True):
+        candidate_n, mapillary_pic, confidence = _best_matching_pair_with_confidence(
                 cache,
                 row["url_o"],
                 row["longitude"],
                 row["latitude"],
             )
+        df.loc[idx, "mapillary_candidates"] = candidate_n
 
         if mapillary_pic:
             df.loc[idx, [
