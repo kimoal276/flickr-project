@@ -1,2 +1,2 @@
 photo_id,source_dataset,title,vision_label,flickr_lat,flickr_lon,pred_lat,pred_lon,mapillary_id,similarity,final_score,distance_km,status
-5807567105,bibliothequedetoulouse,"Vague au casino, Nice, avril 1899",YES,43.695415,7.265245,,,,,,,no_result
+

@@ -1,14 +1,3 @@
-"""
-mapillary_client.py
-
-Fetches Mapillary street-level image candidates and ranks them against a
-historical archive photo using visual feature matching.
-
-Public API
-
-sample_candidate
-"""
-
 import os
 
 import numpy as np
@@ -18,6 +7,7 @@ from dataclasses import dataclass
 import math
 import random
 from typing import Optional
+from collections import defaultdict
 from collections import defaultdict
 from .geo_utils import haversine_km
 
@@ -167,50 +157,3 @@ def smart_angle_candidates(longitude: float, latitude:float, TILE_SIDE_KM=0.1, B
     
     return candidates
     
-
-"""""
-# Fetching 
-def fetch_candidates(min_lat, min_lon, max_lat, max_lon, limit=100):
-    token = _get_token()
-    TILE_SIZE = 0.005
-    PER_TILE  = 25                       
-    seen, candidates = set(), []
-
-    lat = min_lat
-    while lat < max_lat:
-        lon = min_lon
-        while lon < max_lon:
-            tile = (lon, lat,
-                    min(lon + TILE_SIZE, max_lon),
-                    min(lat + TILE_SIZE, max_lat))
-            params = {
-                "access_token": token,
-                "fields":       "id,geometry,thumb_1024_url,captured_at",
-                "bbox":         f"{tile[0]},{tile[1]},{tile[2]},{tile[3]}",
-                "limit":        1000,
-            }
-            try:
-                resp = requests.get(f"{MAPILLARY_BASE}/images",
-                                    params=params, timeout=60)
-                resp.raise_for_status()
-                for item in resp.json().get("data", []):
-                    mid = item.get("id")
-                    coords = item.get("geometry", {}).get("coordinates", [])
-                    thumb  = item.get("thumb_1024_url")
-                    if mid and mid not in seen and thumb and len(coords) >= 2:
-                        seen.add(mid)
-                        candidates.append({"mapillary_id": mid,
-                                           "lon": coords[0], "lat": coords[1],
-                                           "thumb_url": thumb})
-            except requests.HTTPError:
-                pass
-            lon += TILE_SIZE
-        lat += TILE_SIZE
-
-    # Then subsample to `limit` *spatially* — keep candidates near the
-    # bbox center first so we don't blow LoFTR budget on the periphery.
-    cx = (min_lat + max_lat) / 2
-    cy = (min_lon + max_lon) / 2
-    candidates.sort(key=lambda c: (c["lat"]-cx)**2 + (c["lon"]-cy)**2)
-    return candidates[:limit]
-"""""
