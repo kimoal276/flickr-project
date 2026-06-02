@@ -99,6 +99,7 @@ def create_sampler(longitude: float, latitude: float, st_km: float = 0.05)-> Opt
                 pic_url=item.get("thumb_1024_url"),
             )
             for item in data
+            if item.get("thumb_1024_url")
         ]
         if len(candidates) > 0:
             return MapillarySampler(longitude, latitude, candidates, st_km)
@@ -157,6 +158,7 @@ def smart_angle_candidates(longitude: float, latitude:float, TILE_SIDE_KM=0.1, B
                     pic_url=item.get("thumb_1024_url"),
                 )
                 for item in data
+                if item.get("thumb_1024_url")
             ]
             if not tile_candidates:
                 continue
@@ -171,15 +173,15 @@ def smart_angle_candidates(longitude: float, latitude:float, TILE_SIDE_KM=0.1, B
             continue
     
     return candidates
-    
+"""""  
 def slow_stupid_monument_candidates(longitude: float, latitude:float):
-    """
+    
     Find candidates pictures around a point in a 10km radius:
     - Identify the 10 highest density 100m x 100m tiles that are likely 
       corresponding to famous monuments
     - for each monument tile, sample a picture pointing in every bin direction
       to cover all angles of the monument
-    """
+    
     SEARCH_TILE_SIDE_KM = 0.1 #size of a tile
     N_TILE_RADIUS = 50 #search radius as a number of tile
     N_BEST = 10 
@@ -251,15 +253,16 @@ def slow_stupid_monument_candidates(longitude: float, latitude:float):
             final_candidates.append(random.choice(bin_candidates))
 
     return final_candidates
+"""""
 
 def _fetch_vector_tile(z: int, x: int, y: int):
     url = VECTOR_TILE_URL.format(z=z,x=x,y=y, token=_get_token())
     params = {"access_token": _get_token()}
     resp = requests.get(url, params=params, timeout=30)
-    print(resp.status_code)
-    print(resp.headers.get("Content-Type"))
-    print(resp.headers.get("Content-Encoding"))
-    print(resp.content[:100])
+    #print(resp.status_code)
+    #print(resp.headers.get("Content-Type"))
+    #print(resp.headers.get("Content-Encoding"))
+    #print(resp.content[:100])
     resp.raise_for_status()
     return decode(resp.content)
 
@@ -269,15 +272,16 @@ def _bbox_around_point(longitude, latitude, radius_km):
     deg_lon = radius_km / (111.0 * cos_lat)
     return (longitude - deg_lon, latitude - deg_lat, longitude + deg_lon, latitude + deg_lat)
 
+"""""
 def smart_monument_candidates(longitude: float, latitude: float):
-    """
+    
     Optimized monument-oriented candidate sampler.
 
     Strategy:
     1. Use Mapillary vector tiles to cheaply identify dense regions
     2. Only fetch image metadata inside the best regions
     3. Preserve directional diversity
-    """
+  
 
     SEARCH_TILE_SIDE_KM = 0.1
     N_TILE_RADIUS = 50
@@ -448,3 +452,4 @@ def smart_monument_candidates(longitude: float, latitude: float):
             )
 
     return final_candidates
+"""""

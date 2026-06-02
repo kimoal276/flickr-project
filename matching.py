@@ -1,14 +1,15 @@
 import pandas as pd
 from typing import Optional, Tuple
 from tqdm import tqdm
-from .src.trainer.mapillary_client import MapillaryPicture, create_sampler, smart_angle_candidates, smart_monument_candidates
-from .src.trainer.building_matcher import (
+from src.trainer.mapillary_client import MapillaryPicture, create_sampler, smart_angle_candidates
+from src.trainer.building_matcher import (
     load_picture,
     load_matcher,
     compute_loftr_matches,
     compute_ransac_inliers,
     to_gray_tensor,
 )
+
 
 MAX_TENSOR_SIZE = 512
 SAMPLING_COUNT = 40
@@ -30,8 +31,8 @@ def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, l
     # sampler = create_sampler(longitude=longitude, latitude=latitude, st_km=SAMPLING_RADIUS)
     # candidates = [sampler.sample_candidates() for i in range(SAMPLING_COUNT)]
     #new sampler:
-    # candidates = smart_angle_candidates(longitude=longitude, latitude=latitude, TILE_SIDE_KM=TILE_SIDE_KM, BIN_SIZE=BIN_SIZE)
-    candidates = smart_monument_candidates(longitude=longitude, latitude=latitude)
+    candidates = smart_angle_candidates(longitude=longitude, latitude=latitude, TILE_SIDE_KM=TILE_SIDE_KM, BIN_SIZE=BIN_SIZE)
+    #candidates = smart_monument_candidates(longitude=longitude, latitude=latitude)
 
     mapillary_pictures = cache.get_images([c.pic_url for c in candidates], download_missing=True, fast_cache=False, disk_save=False)
     valid_candidates = [ (to_gray_tensor(mapillary_pic, MAX_TENSOR_SIZE, device), candidate)
@@ -56,7 +57,7 @@ def _best_matching_pair_with_confidence(cache, img_url: str, longitude: float, l
 
     # return best_candidate, loft_inlier_count
     if best_loftr_inlier_count < MIN_LOFTR_INLIER_COUNT and best_candidate:
-        print(f"Max loftr inlier: {best_loftr_inlier_count} for pic: {img_url}. Candidate: {best_candidate.mapillary_pic_url}")
+        print(f"Max loftr inlier: {best_loftr_inlier_count} for pic: {img_url}. Candidate: {best_candidate.pic_url}")
     return len(candidates), best_candidate, min((best_ransac_inlier_count+1) / 1000, 0.999999)
 
 

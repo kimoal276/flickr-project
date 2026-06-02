@@ -4,3 +4,5 @@ dir/
 metadata/
 metadata_combined/
 __pycache__
+image_cache
+comparisons
