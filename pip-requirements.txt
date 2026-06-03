@@ -10,5 +10,3 @@ transformers
 sentencepiece
 kornia
 opencv-python
-mercantile
-vt2geojson

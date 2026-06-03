@@ -1,11 +1,11 @@
 from __future__ import annotations
-
+from src.trainer.geo_utils import haversine_km
 import argparse
 import csv
 import os
 import sys
 from pathlib import Path
-
+from simple_image_cache import SimpleImageCache
 import pandas as pd
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -33,26 +33,6 @@ if find_matches is None:
         f"  {type(_import_err).__name__}: {_import_err}\n"
         "Adjust the import paths above to point at your matching module."
     )
-
-# haversine for the distance column (reuse your util; fall back if path differs)
-try:
-    from src.trainer.geo_utils import haversine_km
-except Exception:  
-    try:
-        from geo_utils import haversine_km
-    except Exception:  
-        import math
-
-        def haversine_km(lat1, lon1, lat2, lon2):
-            R = 6_371.0
-            p1, p2 = math.radians(lat1), math.radians(lat2)
-            dphi = math.radians(lat2 - lat1)
-            dlam = math.radians(lon2 - lon1)
-            a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2
-            return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-from simple_image_cache import SimpleImageCache
-
 
 # --------------------------------------------------------------------------
 # Output schema. find_matches writes these columns into the row dataframe:

@@ -1,9 +1,8 @@
 import pandas as pd
 from typing import Optional, Tuple
 from tqdm import tqdm
-from src.trainer.mapillary_client import MapillaryPicture, create_sampler, smart_angle_candidates
+from src.trainer.mapillary_client import MapillaryPicture,smart_angle_candidates
 from src.trainer.building_matcher import (
-    load_picture,
     load_matcher,
     compute_loftr_matches,
     compute_ransac_inliers,

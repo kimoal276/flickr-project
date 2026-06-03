@@ -1,25 +1,14 @@
 """
 simple_image_cache.py
 ---------------------
-A dependency-light, proxy-free drop-in replacement for your friend's
-`PersistentImageCache`.
-
+alternative to nathanael's cache that uses the db
 It exposes the exact two methods that `matching.py` actually calls:
 
     cache.get(url, *, download_missing=False, fast_cache=False, disk_save=False) -> PIL.Image
     cache.get_images(urls, download_missing=False, fast_cache=False, disk_save=False) -> list[Image|None]
 
-so you can pass an instance of this straight into `find_matches(df, cache)`
-without touching your existing code.
-
-Differences vs PersistentImageCache:
-  * No SOCKS5 proxies, no proxy scoring, no proxy files required.
-  * Plain `requests.Session` with retries (fine for Flickr static CDN +
-    Mapillary thumbnail CDN).
-  * Same semantics for the flags:
-        - get():  RAM (LRU) -> disk -> download.  Raises on hard failure.
-        - get_images(): threaded, returns None for any url that fails
-                        (never raises) so `find_matches` can skip it.
+so i can pass an instance of this straight into `find_matches(df, cache)`
+without touching the existing code.
 """
 
 from __future__ import annotations
@@ -37,17 +26,17 @@ import requests
 from PIL import Image
 from tqdm import tqdm
 
-# Tunables ------------------------------------------------------------------
+# Tunables
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 20
 RETRIES = 3
 RETRY_BACKOFF_S = 0.6
 NUMBER_OF_THREADS = 32
-MAX_MEM_GB = 8                     # RAM budget for the in-memory LRU
-DISK_FORMAT = "JPEG"               # "JPEG" keeps the cache small; use "PNG" for lossless
-DISK_QUALITY = 90                  # only used for JPEG
-MAX_STORE_PX = 1024                # cap longest side on download (None = keep full size).
-                                   # Lossless for matching: to_gray_tensor downsamples to 512.
+MAX_MEM_GB = 8                     
+DISK_FORMAT = "JPEG"               
+DISK_QUALITY = 90                  
+MAX_STORE_PX = 1024                
+                                   
 USER_AGENT = "flico-csv/1.0"
 
 
@@ -73,7 +62,7 @@ class SimpleImageCache:
         # thread-local sessions (requests.Session is not guaranteed thread-safe)
         self._tls = threading.local()
 
-    # ---- internal helpers -------------------------------------------------
+    #internal helpers 
     def _session(self) -> requests.Session:
         s = getattr(self._tls, "session", None)
         if s is None:
@@ -180,7 +169,7 @@ class SimpleImageCache:
                 if fast_cache:
                     self._mem_put(url, img)
                 return img
-            except Exception as exc:                     # noqa: BLE001
+            except Exception as exc:            
                 last_exc = exc
                 if attempt < RETRIES - 1:
                     time.sleep(RETRY_BACKOFF_S * (attempt + 1))
@@ -205,7 +194,7 @@ class SimpleImageCache:
                     fast_cache=fast_cache,
                     disk_save=disk_save,
                 )
-            except Exception:                            # noqa: BLE001
+            except Exception:                         
                 return i, None
 
         with ThreadPoolExecutor(max_workers=self.n_threads) as ex:
@@ -221,7 +210,7 @@ class SimpleImageCache:
 
         return imgs
 
-    # ---- convenience: bulk pre-download (optional) ------------------------
+    #convenience: bulk pre-download (optional)
     def precache(self, urls, disk_save: bool = True) -> int:
         """Download a list of urls to disk up front. Returns count succeeded."""
         urls = [u for u in dict.fromkeys(map(str, urls)) if u and u != "nan"]
