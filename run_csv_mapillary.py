@@ -114,7 +114,7 @@ def main() -> None:
     if not in_path.exists():
         sys.exit(f"ERROR: input CSV not found: {in_path.resolve()}")
 
-    # ---- load + adapt the CSV to what find_matches expects ----------------
+    # load + adapt the CSV to what find_matches expects
     df = pd.read_csv(in_path)
     df = df.rename(columns={"image_url": "url_o"})        # the column find_matches reads
     df = df.dropna(subset=["url_o", "latitude", "longitude"])
@@ -152,7 +152,7 @@ def main() -> None:
             if pid in done_ids:
                 continue
 
-            one = df.iloc[[i]].copy()        # single-row df, exactly like fast_mapillary
+            one = df.iloc[[i]].copy()        # single-row df
             try:
                 matched = find_matches(one, cache)
                 matched_row = matched.iloc[0]

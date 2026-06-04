@@ -47,7 +47,7 @@ for _modpath in ("src.trainer.geo_utils", "geo_utils"):
         _mod = __import__(_modpath, fromlist=["save_comparison"])
         save_comparison = getattr(_mod, "save_comparison")
         break
-    except Exception:  # noqa: BLE001
+    except Exception:  
         pass
 if save_comparison is None:
     sys.exit("Could not import save_comparison from geo_utils.py — check its location.")
@@ -65,7 +65,7 @@ def fresh_thumb_url(image_id: int, token: str) -> str | None:
         )
         r.raise_for_status()
         return r.json().get("thumb_1024_url")
-    except Exception:  # noqa: BLE001
+    except Exception:  
         return None
 
 

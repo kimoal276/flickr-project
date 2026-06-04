@@ -6,9 +6,6 @@ It exposes the exact two methods that `matching.py` actually calls:
 
     cache.get(url, *, download_missing=False, fast_cache=False, disk_save=False) -> PIL.Image
     cache.get_images(urls, download_missing=False, fast_cache=False, disk_save=False) -> list[Image|None]
-
-so i can pass an instance of this straight into `find_matches(df, cache)`
-without touching the existing code.
 """
 
 from __future__ import annotations
@@ -122,11 +119,11 @@ class SimpleImageCache:
                 img.save(tmp, format="JPEG", quality=DISK_QUALITY)
             else:
                 img.save(tmp, format="PNG")
-            tmp.replace(path)            # atomic-ish, avoids half-written files
+            tmp.replace(path)            
         except Exception:
             tmp.unlink(missing_ok=True)
 
-    # ---- public API (matches what matching.py expects) --------------------
+    # public API (matches what matching.py expects) 
     def get(
         self,
         url: str,
